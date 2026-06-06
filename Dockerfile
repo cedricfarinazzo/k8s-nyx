@@ -1,5 +1,9 @@
-# Build the manager binary
-FROM golang:1.24 AS builder
+# Build the manager binary.
+# Pin the builder to the native BUILDPLATFORM and cross-compile to TARGETARCH:
+# the manager is a static (CGO_ENABLED=0) Go binary, so `go build` cross-compiles
+# on the build host instead of running the whole stage under QEMU emulation —
+# the arm64 image builds at native amd64 speed.
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
