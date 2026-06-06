@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.0.1...v1.1.0) (2026-06-06)
+
+
+### Features
+
+* **workload:** gate workload kinds via a handler registry ([#27](https://github.com/cedricfarinazzo/k8s-nyx/issues/27)) ([c727235](https://github.com/cedricfarinazzo/k8s-nyx/commit/c727235adb6dc6bb5fb4751be3d8583f51146c9f))
+* **workload:** sleep & restore DaemonSet via sentinel nodeSelector ([#30](https://github.com/cedricfarinazzo/k8s-nyx/issues/30)) ([aeb0e8f](https://github.com/cedricfarinazzo/k8s-nyx/commit/aeb0e8fc276d5aae83446c86bac0bdc5d21c6280))
+
 ## [1.0.1](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.0.0...v1.0.1) (2026-06-06)
 
 
