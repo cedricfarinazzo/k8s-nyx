@@ -1,0 +1,32 @@
+name: Release
+
+# Skeleton release workflow (VC-122). Triggered on version tags.
+# This is a no-op stub: actual image/chart publishing is delivered in E4 (VC-113).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  # Granted now so the repo's Actions can push to GHCR once E4 wires up publishing.
+  packages: write
+
+env:
+  # GHCR coordinates this workflow will publish to (see E4 / VC-113).
+  IMAGE: ghcr.io/cedricfarinazzo/k8s-nyx
+  CHART: ghcr.io/cedricfarinazzo/k8s-nyx-chart
+
+jobs:
+  release:
+    name: Release (stub)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Placeholder
+        run: |
+          echo "Release stub for tag ${GITHUB_REF_NAME}."
+          echo "Image namespace:  ${IMAGE}"
+          echo "Chart namespace:  ${CHART}"
+          echo "Actual build/push of image and chart is delivered in E4 (VC-113)."
