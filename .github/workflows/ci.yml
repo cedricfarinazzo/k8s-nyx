@@ -10,6 +10,24 @@ permissions:
   contents: read
 
 jobs:
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    # wagoid reads the PR's commits via the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lint PR commits (Conventional Commits)
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: .commitlintrc.yml
+
   build:
     name: Build
     runs-on: ubuntu-latest

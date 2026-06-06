@@ -1,0 +1,12 @@
+{
+  "name": "k8s-nyx-release",
+  "version": "0.0.0-managed",
+  "private": true,
+  "description": "Release tooling (semantic-release) for k8s-nyx. Not a published package.",
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "semantic-release": "^24.2.0"
+  }
+}

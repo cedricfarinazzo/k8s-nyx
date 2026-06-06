@@ -30,6 +30,15 @@ full list):
   certs). Set `true` to enable it; `webhook.certManager.enabled` (default `true`)
   wires a cert-manager `Issuer`/`Certificate`, so cert-manager must be installed.
 
+## Releases
+
+Releases are automated with [semantic-release](https://github.com/semantic-release/semantic-release).
+Conventional Commits merged to `master` drive the next SemVer version
+(`fix`→patch, `feat`→minor, breaking→major); the release workflow computes the
+version, updates `CHANGELOG.md`, creates the GitHub Release + tag, and publishes
+the operator image and Helm chart at that exact version. A commit set with no
+releasable changes produces no release.
+
 ## License
 
 Released under the [MIT License](LICENSE).
