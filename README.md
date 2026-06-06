@@ -1,43 +1,101 @@
 # k8s-nyx
 
-k8s-nyx is a Kubernetes operator that puts workloads to sleep on a schedule (nights and weekends) to save cost, and lets anyone wake them on demand for a bounded period — after which they automatically return to sleep, restored to their exact prior configuration. This repository hosts the source, container image, and Helm chart. See [CLAUDE.md](CLAUDE.md) for the architecture and development workflow.
+**Put Kubernetes workloads to sleep on a schedule, wake them on demand, and
+restore their exact prior state — automatically.**
 
-## Distribution
+k8s-nyx is a Kubernetes operator that scales `Deployments` and `StatefulSets`
+down during off-hours (nights, weekends) to save cost, and lets anyone wake them
+on demand for a bounded window — after which they return to sleep, restored to
+the **exact** replica count they had before. It touches **only**
+`/spec/replicas`, so it coexists cleanly with GitOps tools like ArgoCD.
 
-Container images and the Helm chart are published to GitHub Container Registry (GHCR):
+> 📖 **Full documentation: [`docs/`](docs/README.md)** — [Quickstart](docs/quickstart.md) ·
+> [User Guide](docs/user-guide.md) · [Operator Guide](docs/operator-guide.md) ·
+> [Contributing](docs/contributing.md)
+
+```yaml
+apiVersion: nyx.dev/v1alpha1
+kind: SleepSchedule
+metadata:
+  name: weekdays-9to6
+  namespace: team-a
+spec:
+  timezone: Europe/Paris
+  awake:
+    - days: [Mon, Tue, Wed, Thu, Fri]
+      from: "09:00"
+      to:   "18:00"
+  target:
+    mode: namespaces
+    namespaces: [team-a]
+```
+
+This keeps everything in `team-a` running 09:00–18:00 on weekdays (Paris time)
+and asleep the rest of the time. Need it awake right now? Drop one line in the
+schedule's wake ConfigMap and it wakes for a bounded period, then sleeps again.
+
+## Why
+
+- **Cost.** Non-production workloads sit idle most of the week. Sleeping them is
+  free money back.
+- **Exact restore.** The pre-sleep replica count is checkpointed out-of-band
+  (in a Secret) and restored precisely on wake — survives operator restarts.
+- **On-demand wake.** Anyone can wake a sleeping environment for a bounded
+  window without editing the schedule, with `by`/`reason` attribution.
+- **GitOps-safe.** Only `/spec/replicas` is ever patched, via a merge patch — no
+  fights with ArgoCD over the rest of the manifest.
+- **Timezone- & DST-correct.** Windows are anchored to wall-clock local time in
+  the schedule's IANA timezone.
+
+## How it works
+
+```
+    ┌───────────────┐     evaluate      ┌───────────────┐
+    │ SleepSchedule │ ────────────────▶ │   schedule    │   Awake? Asleep? next flip?
+    └───────┬───────┘                   └───────────────┘
+            │ resolve targets
+            ▼
+    ┌───────────────┐     sleep/wake    ┌───────────────┐     checkpoint
+    │   workloads   │ ◀──────────────── │    sleeper    │ ──────────────▶ Secret
+    │  (Deploy/STS) │   /spec/replicas  └───────────────┘     (exact replicas)
+    └───────────────┘
+```
+
+The reconciler evaluates the schedule in its timezone, resolves the targeted
+workloads, scales them to sleep (checkpointing the original count once) or
+restores them on wake, processes any on-demand wake overrides, and requeues at
+the next transition. See the [documentation](docs/README.md) for the full picture.
+
+## Install
+
+Published to GitHub Container Registry (GHCR):
 
 - **Image:** `ghcr.io/cedricfarinazzo/k8s-nyx`
 - **Chart:** `oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart`
 
 ```sh
-# Pull the image
-docker pull ghcr.io/cedricfarinazzo/k8s-nyx:latest
-
-# Install the chart (pin a version with --version X.Y.Z)
 helm install k8s-nyx oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart \
   --namespace k8s-nyx-system --create-namespace
 ```
 
-The chart installs the `SleepSchedule` CRD, RBAC, and the operator Deployment.
-The chart `version` and `appVersion` (the operator image tag) move together with
-each release. Common overrides (`helm show values oci://.../k8s-nyx-chart` for the
-full list):
+Then create a `SleepSchedule` (see [docs/quickstart.md](docs/quickstart.md)).
 
-- `image.tag` — defaults to the chart's `appVersion`.
-- `crds.install` — set `false` to manage the CRD out-of-band. The CRD carries
-  `helm.sh/resource-policy: keep`, so it survives `helm uninstall`.
-- `webhook.enabled` — the validating webhook is **off by default** (it needs TLS
-  certs). Set `true` to enable it; `webhook.certManager.enabled` (default `true`)
-  wires a cert-manager `Issuer`/`Certificate`, so cert-manager must be installed.
+## Documentation
 
-## Releases
+| Guide | For |
+|-------|-----|
+| [Quickstart](docs/quickstart.md) | Get a schedule running in 5 minutes |
+| [User Guide](docs/user-guide.md) | The `SleepSchedule` API, wake overrides, examples |
+| [Operator Guide](docs/operator-guide.md) | Install, configure, secure, and operate the controller |
+| [Contributing](docs/contributing.md) | Develop, test, and release k8s-nyx |
+| [Chart README](charts/k8s-nyx-chart/README.md) | Helm chart values and options |
+| [CLAUDE.md](CLAUDE.md) | Repository map & conventions (for humans and agents) |
 
-Releases are automated with [semantic-release](https://github.com/semantic-release/semantic-release).
-Conventional Commits merged to `master` drive the next SemVer version
-(`fix`→patch, `feat`→minor, breaking→major); the release workflow computes the
-version, updates `CHANGELOG.md`, creates the GitHub Release + tag, and publishes
-the operator image and Helm chart at that exact version. A commit set with no
-releasable changes produces no release.
+## Status
+
+`nyx.dev/v1alpha1` — early but functional. Releases are automated with
+[semantic-release](https://github.com/semantic-release/semantic-release) from
+Conventional Commits; see the [CHANGELOG](CHANGELOG.md).
 
 ## License
 
