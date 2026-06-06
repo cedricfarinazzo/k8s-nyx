@@ -109,6 +109,11 @@ restored verbatim on wake.
 | `DaemonSet` | inject an unsatisfiable sentinel `nodeSelector` (`nyx.dev/asleep`) so 0 pods schedule | `/spec/template/spec/nodeSelector` |
 | `CronJob` | set `spec.suspend: true` (stops scheduling new jobs) | `/spec/suspend` |
 | `Job` | set `spec.suspend: true`; a Job with **active pods is skipped** (suspending would delete them) with a `SkippedActiveJob` Warning | `/spec/suspend` |
+| `HorizontalPodAutoscaler` | neutralize `minReplicas`/`maxReplicas` (pin to the sleep floor) so the HPA can't scale the target back up | `/spec/minReplicas`, `/spec/maxReplicas` |
+
+> **HPA & scale-to-zero:** pinning an HPA below 1 replica needs the cluster's
+> `HPAScaleToZero` feature gate. k8s-nyx assumes it is disabled (the default): a
+> floor of 0 is clamped to 1 and a `HPAScaleToZeroUnavailable` Warning is emitted.
 
 `spec.kinds` restricts which handled kinds a schedule touches (empty = all
 handled kinds). A kind listed in `spec.kinds` with **no handler** (e.g. `CronJob`

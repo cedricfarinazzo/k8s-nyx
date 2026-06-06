@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -72,6 +73,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		_ = k8sClient.Delete(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web"}})
 		_ = k8sClient.Delete(ctx, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "agent"}})
 		_ = k8sClient.Delete(ctx, &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "report"}})
+		_ = k8sClient.Delete(ctx, &autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web-hpa"}})
 		_ = k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: resourceName + "-checkpoint"}})
 	})
 
@@ -507,6 +509,51 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(suspend()).NotTo(BeNil())
 		Expect(*suspend()).To(BeFalse())
+	})
+
+	It("neutralizes and restores an HPA min/max (VC-139)", func() {
+		paris, err := time.LoadLocation("Europe/Paris")
+		Expect(err).NotTo(HaveOccurred())
+		sched := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(), // default kinds include HorizontalPodAutoscaler; sleepReplicas 0
+		}
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+
+		minTwo := int32(2)
+		hpa := &autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "Deployment", Name: "web", APIVersion: "apps/v1"},
+				MinReplicas:    &minTwo,
+				MaxReplicas:    10,
+			},
+		}
+		Expect(k8sClient.Create(ctx, hpa)).To(Succeed())
+
+		get := func() *autoscalingv2.HorizontalPodAutoscaler {
+			h := &autoscalingv2.HorizontalPodAutoscaler{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "web-hpa"}, h)).To(Succeed())
+			return h
+		}
+
+		// Saturday → asleep: sleepReplicas 0 → min/max clamped to 1/1 (AC1 + AC3).
+		asleep := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), OperatorNamespace: namespace, Now: func() time.Time { return asleep }}
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		h := get()
+		Expect(h.Spec.MinReplicas).NotTo(BeNil())
+		Expect(*h.Spec.MinReplicas).To(Equal(int32(1)))
+		Expect(h.Spec.MaxReplicas).To(Equal(int32(1)))
+
+		// Monday 10:00 → awake: exact original min/max restored (AC2).
+		r.Now = func() time.Time { return time.Date(2026, 6, 1, 10, 0, 0, 0, paris) }
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		h = get()
+		Expect(*h.Spec.MinReplicas).To(Equal(int32(2)))
+		Expect(h.Spec.MaxReplicas).To(Equal(int32(10)))
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {
