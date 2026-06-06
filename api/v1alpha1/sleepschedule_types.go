@@ -47,7 +47,8 @@ type Target struct {
 	// +optional
 	Namespaces []string `json:"namespaces,omitempty"`
 
-	// Selector is the namespace label selector when Mode is "labels".
+	// Selector is the workload label selector when Mode is "labels"; matching
+	// workloads are selected cluster-wide.
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
