@@ -67,16 +67,14 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// Parse the wake entries: surface malformed ones and audit accepted ones.
-	// Resolving/honouring them is a separate story.
-	if err := r.processWakeEntries(ctx, &ss); err != nil {
+	now := r.now()
+
+	// Parse wake entries: resolve/clamp/stamp, self-clean expired ones, and report
+	// the active-wake state that may override the schedule.
+	ws, err := r.processWakeEntries(ctx, &ss, now)
+	if err != nil {
 		log.Error(err, "process wake entries", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
-	}
-
-	now := time.Now()
-	if r.Now != nil {
-		now = r.Now()
 	}
 
 	res, err := schedule.Evaluate(ss.Spec, now)
@@ -84,6 +82,14 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// Spec passed admission, so this is unexpected (e.g. tzdata gap); surface it.
 		log.Error(err, "evaluate schedule", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
+	}
+
+	// An active wake forces the targets awake even outside an awake window.
+	forcedAwake := ws.ActiveCount > 0
+	effectiveAsleep := !res.Awake && !forcedAwake
+	phase := res.Phase
+	if !res.Awake && forcedAwake {
+		phase = nyxv1alpha1.PhaseWokenByOverride
 	}
 
 	// Resolve targets and apply the sleep/wake decision.
@@ -98,7 +104,7 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Store:    &checkpoint.Store{Client: r.Client, Namespace: r.OperatorNamespace},
 		Recorder: r.Recorder,
 	}
-	if err := sl.Apply(ctx, &ss, !res.Awake, targets); err != nil {
+	if err := sl.Apply(ctx, &ss, effectiveAsleep, targets); err != nil {
 		log.Error(err, "apply sleep/wake", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
@@ -110,9 +116,11 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		next := metav1.NewTime(res.NextTransition)
 		nextStatus = &next
 	}
-	if statusChanged(ss.Status, res.Phase, nextStatus) {
-		ss.Status.Phase = res.Phase
+	activeWakes := int32(ws.ActiveCount)
+	if statusChanged(ss.Status, phase, nextStatus, activeWakes) {
+		ss.Status.Phase = phase
 		ss.Status.NextTransition = nextStatus
+		ss.Status.ActiveWakes = activeWakes
 		if err := r.Status().Update(ctx, &ss); err != nil {
 			if apierrors.IsConflict(err) {
 				return ctrl.Result{Requeue: true}, nil
@@ -121,15 +129,31 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	var requeueAfter time.Duration
-	if !res.NextTransition.IsZero() {
-		requeueAfter = res.NextTransition.Sub(now)
-		if requeueAfter < time.Second {
-			requeueAfter = time.Second
+	requeueAfter := requeueDelay(now, res.NextTransition, ws.Earliest)
+	log.V(1).Info("reconciled", "phase", phase, "activeWakes", activeWakes, "requeueAfter", requeueAfter)
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// requeueDelay returns the wait until the soonest of the next schedule transition
+// and the earliest upcoming wake expiry (both may be zero/absent), floored at 1s
+// when there is something to wait for.
+func requeueDelay(now, nextTransition, earliestExpiry time.Time) time.Duration {
+	var best time.Duration
+	consider := func(t time.Time) {
+		if t.IsZero() {
+			return
+		}
+		d := t.Sub(now)
+		if d < time.Second {
+			d = time.Second
+		}
+		if best == 0 || d < best {
+			best = d
 		}
 	}
-	log.V(1).Info("evaluated schedule", "phase", res.Phase, "requeueAfter", requeueAfter)
-	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	consider(nextTransition)
+	consider(earliestExpiry)
+	return best
 }
 
 // WakeConfigMapName is the name of the per-schedule Wake ConfigMap.
@@ -167,19 +191,27 @@ func (r *SleepScheduleReconciler) ensureWakeConfigMap(ctx context.Context, ss *n
 	return r.Create(ctx, &cm)
 }
 
-// processWakeEntries reads the schedule's Wake ConfigMap, drops malformed entries
-// with a Warning Event naming the key (AC3), and records accepted entries' by/reason
-// to the log and a Normal Event for the audit trail (AC4).
-func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *nyxv1alpha1.SleepSchedule) error {
+// wakeState summarises the active wake overrides after a reconcile pass.
+type wakeState struct {
+	// ActiveCount is the number of entries whose expiry is still in the future.
+	ActiveCount int
+	// Earliest is the soonest upcoming active expiry (zero when no active wakes).
+	Earliest time.Time
+}
+
+// processWakeEntries reads the Wake ConfigMap, resolves/clamps/stamps entries
+// (VC-130), surfaces malformed ones (VC-129), deletes expired entries (AC3), and
+// returns the active-wake state. The ConfigMap is written at most once per pass.
+func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *nyxv1alpha1.SleepSchedule, now time.Time) (wakeState, error) {
 	log := logf.FromContext(ctx)
 
 	var cm corev1.ConfigMap
 	err := r.Get(ctx, types.NamespacedName{Namespace: ss.Namespace, Name: WakeConfigMapName(ss.Name)}, &cm)
 	if apierrors.IsNotFound(err) {
-		return nil // ensure runs first; absence here just means nothing to parse yet
+		return wakeState{}, nil // ensure runs first; absence just means nothing to parse yet
 	}
 	if err != nil {
-		return err
+		return wakeState{}, err
 	}
 
 	valid, errs := wake.ParseData(cm.Data)
@@ -190,15 +222,11 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 				"ignored malformed wake entry %q: %v", key, perr)
 		}
 	}
-	now := r.now()
+
 	def, max := temporaryWakeBounds(ss)
 	dirty := false
+	var st wakeState
 	for _, e := range valid {
-		log.V(1).Info("wake entry", "key", e.Key, "by", e.By, "reason", e.Reason)
-		if r.Recorder != nil {
-			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
-				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
-		}
 		res, rerr := wake.Resolve(e, now, def, max)
 		if rerr != nil {
 			// e.g. no expiry and no defaultDuration configured — treat like malformed.
@@ -209,22 +237,44 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 			}
 			continue
 		}
-		if res.Changed {
-			cm.Data[e.Key] = wake.FormatEntry(res.Expiry, e.By, e.Reason)
-			dirty = true
-		}
 		if res.Clamped && r.Recorder != nil {
 			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeClamped",
 				"wake entry %q clamped to maxDuration (expiry %s)", e.Key, res.Expiry.UTC().Format(time.RFC3339))
 		}
+
+		if !res.Expiry.After(now) {
+			// Expired: self-clean (AC3).
+			delete(cm.Data, e.Key)
+			dirty = true
+			if r.Recorder != nil {
+				r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeExpired",
+					"wake entry %q expired and was removed", e.Key)
+			}
+			continue
+		}
+
+		// Active wake.
+		if res.Changed {
+			cm.Data[e.Key] = wake.FormatEntry(res.Expiry, e.By, e.Reason)
+			dirty = true
+		}
+		st.ActiveCount++
+		if st.Earliest.IsZero() || res.Expiry.Before(st.Earliest) {
+			st.Earliest = res.Expiry
+		}
+		log.V(1).Info("active wake", "key", e.Key, "by", e.By, "reason", e.Reason, "expiry", res.Expiry)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
+				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
+		}
 	}
 
-	// Persist any stamped/clamped values exactly once; subsequent reconciles see
-	// absolute, within-cap values and leave them unchanged (AC1 — no re-extend).
 	if dirty {
-		return r.Update(ctx, &cm)
+		if err := r.Update(ctx, &cm); err != nil {
+			return wakeState{}, err
+		}
 	}
-	return nil
+	return st, nil
 }
 
 // temporaryWakeBounds returns the configured default / max wake durations, or 0s
@@ -246,8 +296,8 @@ func (r *SleepScheduleReconciler) now() time.Time {
 
 // statusChanged reports whether the computed phase / nextTransition differ from
 // what is already on the object, so the reconciler can skip a no-op status write.
-func statusChanged(cur nyxv1alpha1.SleepScheduleStatus, phase nyxv1alpha1.SleepSchedulePhase, next *metav1.Time) bool {
-	if cur.Phase != phase {
+func statusChanged(cur nyxv1alpha1.SleepScheduleStatus, phase nyxv1alpha1.SleepSchedulePhase, next *metav1.Time, activeWakes int32) bool {
+	if cur.Phase != phase || cur.ActiveWakes != activeWakes {
 		return true
 	}
 	switch {
