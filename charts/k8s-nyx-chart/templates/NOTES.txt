@@ -1,0 +1,17 @@
+k8s-nyx operator installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Operator image: {{ include "k8s-nyx.image" . }}
+CRD installed:  {{ .Values.crds.install }}  (SleepSchedule, group nyx.dev)
+Webhook:        {{ if .Values.webhook.enabled }}enabled{{ else }}disabled (ENABLE_WEBHOOKS=false){{ end }}
+
+Check the operator is Ready:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "k8s-nyx.fullname" . }}
+
+Create a SleepSchedule (see https://github.com/cedricfarinazzo/k8s-nyx):
+
+  kubectl get sleepschedules -A
+{{- if .Values.webhook.enabled }}
+
+NOTE: the validating webhook is enabled. It requires cert-manager{{ if not .Values.webhook.certManager.enabled }}, but webhook.certManager.enabled is false — you must supply a TLS cert in secret "{{ include "k8s-nyx.fullname" . }}-webhook-cert" yourself{{ end }}.
+{{- end }}

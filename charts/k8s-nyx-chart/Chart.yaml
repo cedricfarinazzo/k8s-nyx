@@ -1,0 +1,20 @@
+apiVersion: v2
+name: k8s-nyx-chart
+description: |
+  k8s-nyx — a Kubernetes operator that sleeps workloads on a schedule and wakes
+  them on demand, restoring their exact prior replica count. Installs the
+  SleepSchedule CRD, RBAC, and the operator Deployment.
+type: application
+# version (chart) and appVersion (operator image tag) are placeholders here and
+# are overwritten at release time from the released semver (see release.yml).
+version: 0.0.0
+appVersion: 0.0.0
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - operator
+  - cost-optimization
+  - scheduling
+  - sleep
+home: https://github.com/cedricfarinazzo/k8s-nyx
+sources:
+  - https://github.com/cedricfarinazzo/k8s-nyx
