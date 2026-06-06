@@ -9,6 +9,10 @@ on demand for a bounded window — after which they return to sleep, restored to
 the **exact** replica count they had before. It touches **only**
 `/spec/replicas`, so it coexists cleanly with GitOps tools like ArgoCD.
 
+> 📖 **Full documentation: [`docs/`](docs/README.md)** — [Quickstart](docs/quickstart.md) ·
+> [User Guide](docs/user-guide.md) · [Operator Guide](docs/operator-guide.md) ·
+> [Contributing](docs/contributing.md)
+
 ```yaml
 apiVersion: nyx.dev/v1alpha1
 kind: SleepSchedule
@@ -46,21 +50,21 @@ schedule's wake ConfigMap and it wakes for a bounded period, then sleeps again.
 ## How it works
 
 ```
-        ┌─────────────┐   evaluate    ┌──────────────┐
-        │ SleepSchedule│ ───────────▶ │  schedule    │  Awake? Asleep? next flip?
-        └─────────────┘               └──────────────┘
-               │ resolve targets             │
-               ▼                             ▼
-        ┌─────────────┐   sleep/wake  ┌──────────────┐   checkpoint
-        │  workloads  │ ◀──────────── │   sleeper    │ ───────────▶ Secret
-        │ (Deploy/STS)│   /spec/replicas└──────────────┘  (exact replicas)
-        └─────────────┘
+    ┌───────────────┐     evaluate      ┌───────────────┐
+    │ SleepSchedule │ ────────────────▶ │   schedule    │   Awake? Asleep? next flip?
+    └───────┬───────┘                   └───────────────┘
+            │ resolve targets
+            ▼
+    ┌───────────────┐     sleep/wake    ┌───────────────┐     checkpoint
+    │   workloads   │ ◀──────────────── │    sleeper    │ ──────────────▶ Secret
+    │  (Deploy/STS) │   /spec/replicas  └───────────────┘     (exact replicas)
+    └───────────────┘
 ```
 
 The reconciler evaluates the schedule in its timezone, resolves the targeted
 workloads, scales them to sleep (checkpointing the original count once) or
 restores them on wake, processes any on-demand wake overrides, and requeues at
-the next transition. See [docs/](docs/) for the full picture.
+the next transition. See the [documentation](docs/README.md) for the full picture.
 
 ## Install
 
