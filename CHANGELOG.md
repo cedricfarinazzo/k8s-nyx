@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.0.0...v1.0.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* **target:** scope excludeRefs to a namespace ([#20](https://github.com/cedricfarinazzo/k8s-nyx/issues/20)) ([ef92beb](https://github.com/cedricfarinazzo/k8s-nyx/commit/ef92beb0383f65eabb2a6b95cf9cd367616fab7b))
+
 # 1.0.0 (2026-06-06)
 
 
