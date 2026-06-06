@@ -7,6 +7,8 @@ Licensed under the MIT License.
 package controller
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -31,8 +33,8 @@ func validSpec() nyxv1alpha1.SleepScheduleSpec {
 	}
 }
 
-// AC4: the SleepSchedule type compiles, its CRD installs into envtest, and the
-// no-op reconciler returns no error / no requeue for both existing and missing objects.
+// The CRD installs into envtest; the reconciler evaluates the schedule, records
+// phase + nextTransition in status, and requeues at the next boundary (AC3).
 var _ = Describe("SleepSchedule controller", func() {
 	const (
 		resourceName = "test-sleepschedule"
@@ -61,18 +63,32 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(fetched.Spec.Awake).To(HaveLen(1))
 	})
 
-	It("reconciles an existing resource without error or requeue (no-op)", func() {
+	It("sets status phase + nextTransition and requeues (AC3)", func() {
 		obj := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
-			Spec:       validSpec(),
+			Spec:       validSpec(), // Mon/Tue 08:00-20:00 Europe/Paris
 		}
 		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
-		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		paris, err := time.LoadLocation("Europe/Paris")
+		Expect(err).NotTo(HaveOccurred())
+		// Monday 10:00 → Awake, next transition is Monday 20:00.
+		fixedNow := time.Date(2026, 6, 1, 10, 0, 0, 0, paris)
+
+		r := &SleepScheduleReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
+			Now:    func() time.Time { return fixedNow },
+		}
 		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(res.Requeue).To(BeFalse())
-		Expect(res.RequeueAfter).To(BeZero())
+		Expect(res.RequeueAfter).To(BeNumerically(">", 0))
+
+		fetched := &nyxv1alpha1.SleepSchedule{}
+		Expect(k8sClient.Get(ctx, nn, fetched)).To(Succeed())
+		Expect(fetched.Status.Phase).To(Equal(nyxv1alpha1.PhaseAwake))
+		Expect(fetched.Status.NextTransition).NotTo(BeNil())
+		Expect(fetched.Status.NextTransition.Time).To(BeTemporally("==", time.Date(2026, 6, 1, 20, 0, 0, 0, paris)))
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {

@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	_ "time/tzdata" // embed IANA tz DB so LoadLocation works in distroless (no /usr/share/zoneinfo)
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
