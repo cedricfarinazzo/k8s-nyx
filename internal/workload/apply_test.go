@@ -231,7 +231,7 @@ func TestApply_NilReplicasDefaultsToOne(t *testing.T) {
 // one, but Apply guards against it).
 func TestApply_UnsupportedKind(t *testing.T) {
 	s, _ := newSleeper()
-	ref := Ref{Kind: "DaemonSet", Namespace: "team-a", Name: "x"}
+	ref := Ref{Kind: "CronJob", Namespace: "team-a", Name: "x"} // no handler registered
 	if err := s.Apply(context.Background(), schedule(), true, []Ref{ref}); err == nil {
 		t.Fatal("expected error for unsupported kind")
 	}
