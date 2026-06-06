@@ -26,6 +26,7 @@ import (
 	"github.com/cedricfarinazzo/k8s-nyx/internal/schedule"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/sleeper"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/target"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/wake"
 )
 
 // SleepScheduleReconciler reconciles a SleepSchedule object: it evaluates the
@@ -63,6 +64,13 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Ensure the per-schedule Wake ConfigMap exists (the override surface).
 	if err := r.ensureWakeConfigMap(ctx, &ss); err != nil {
 		log.Error(err, "ensure wake configmap", "sleepschedule", req.NamespacedName)
+		return ctrl.Result{}, err
+	}
+
+	// Parse the wake entries: surface malformed ones and audit accepted ones.
+	// Resolving/honouring them is a separate story.
+	if err := r.processWakeEntries(ctx, &ss); err != nil {
+		log.Error(err, "process wake entries", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
@@ -157,6 +165,39 @@ func (r *SleepScheduleReconciler) ensureWakeConfigMap(ctx context.Context, ss *n
 		return err
 	}
 	return r.Create(ctx, &cm)
+}
+
+// processWakeEntries reads the schedule's Wake ConfigMap, drops malformed entries
+// with a Warning Event naming the key (AC3), and records accepted entries' by/reason
+// to the log and a Normal Event for the audit trail (AC4).
+func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *nyxv1alpha1.SleepSchedule) error {
+	log := logf.FromContext(ctx)
+
+	var cm corev1.ConfigMap
+	err := r.Get(ctx, types.NamespacedName{Namespace: ss.Namespace, Name: WakeConfigMapName(ss.Name)}, &cm)
+	if apierrors.IsNotFound(err) {
+		return nil // ensure runs first; absence here just means nothing to parse yet
+	}
+	if err != nil {
+		return err
+	}
+
+	valid, errs := wake.ParseData(cm.Data)
+	for key, perr := range errs {
+		log.Info("ignoring malformed wake entry", "key", key, "error", perr.Error())
+		if r.Recorder != nil {
+			r.Recorder.Eventf(ss, corev1.EventTypeWarning, "MalformedWakeEntry",
+				"ignored malformed wake entry %q: %v", key, perr)
+		}
+	}
+	for _, e := range valid {
+		log.V(1).Info("wake entry", "key", e.Key, "by", e.By, "reason", e.Reason)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
+				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
+		}
+	}
+	return nil
 }
 
 // statusChanged reports whether the computed phase / nextTransition differ from
