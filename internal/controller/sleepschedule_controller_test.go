@@ -236,7 +236,7 @@ var _ = Describe("SleepSchedule controller", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
 			Spec:       validSpec(),
 		}
-		obj.Spec.Kinds = []string{"Deployment", "DaemonSet"} // DaemonSet has no handler
+		obj.Spec.Kinds = []string{"Deployment", "CronJob"} // CronJob has no handler yet
 		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 		rec := record.NewFakeRecorder(20)
@@ -251,7 +251,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		}
 		var warned bool
 		for _, e := range events {
-			if containsAll(e, "Warning", "UnhandledKind", "DaemonSet") {
+			if containsAll(e, "Warning", "UnhandledKind", "CronJob") {
 				warned = true
 			}
 		}
@@ -408,6 +408,51 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(activeWakes()).To(Equal(int32(0)))
 		_, present := getWakeData()["w1"]
 		Expect(present).To(BeFalse(), "expired entry should be removed from the ConfigMap")
+	})
+
+	It("sleeps and restores a DaemonSet via the sentinel nodeSelector (VC-137)", func() {
+		paris, err := time.LoadLocation("Europe/Paris")
+		Expect(err).NotTo(HaveOccurred())
+		sched := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(), // Mon/Tue 08:00-20:00; default kinds include DaemonSet
+		}
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+
+		ds := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "agent"},
+			Spec: appsv1.DaemonSetSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "agent"}},
+					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{"disktype": "ssd"},
+						Containers:   []corev1.Container{{Name: "c", Image: "busybox"}},
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ds)).To(Succeed())
+
+		nodeSel := func() map[string]string {
+			d := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "agent"}, d)).To(Succeed())
+			return d.Spec.Template.Spec.NodeSelector
+		}
+
+		// Saturday → asleep: sentinel injected (0 pods schedule), original kept.
+		asleep := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), OperatorNamespace: namespace, Now: func() time.Time { return asleep }}
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(nodeSel()).To(HaveKeyWithValue("nyx.dev/asleep", "true"))
+		Expect(nodeSel()).To(HaveKeyWithValue("disktype", "ssd"))
+
+		// Monday 10:00 → awake: exact original nodeSelector restored, sentinel gone.
+		r.Now = func() time.Time { return time.Date(2026, 6, 1, 10, 0, 0, 0, paris) }
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(nodeSel()).To(Equal(map[string]string{"disktype": "ssd"}))
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {

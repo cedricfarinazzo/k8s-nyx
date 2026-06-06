@@ -98,13 +98,21 @@ target:
 
 ### Workload kinds
 
-The operator acts only on kinds it has a handler for — currently `Deployment`
-and `StatefulSet`. `spec.kinds` restricts which of those a schedule touches
-(empty = all handled kinds). A kind listed in `spec.kinds` that has **no handler**
-(e.g. `DaemonSet` today) is ignored: the operator mutates nothing of that kind
-and emits an `UnhandledKind` Warning Event on the SleepSchedule, then continues
-with the kinds it does handle. Support for more kinds is added by registering new
-handlers.
+The operator acts only on kinds it has a handler for. Each kind sleeps by a
+different, fully reversible mechanism; the original state is checkpointed and
+restored verbatim on wake.
+
+| Kind | Sleep mechanism | Field(s) touched |
+|------|-----------------|------------------|
+| `Deployment` | scale to `sleepReplicas` | `/spec/replicas` |
+| `StatefulSet` | scale to `sleepReplicas` (PVCs retained) | `/spec/replicas` |
+| `DaemonSet` | inject an unsatisfiable sentinel `nodeSelector` (`nyx.dev/asleep`) so 0 pods schedule | `/spec/template/spec/nodeSelector` |
+
+`spec.kinds` restricts which handled kinds a schedule touches (empty = all
+handled kinds). A kind listed in `spec.kinds` with **no handler** (e.g. `CronJob`
+today) is ignored: the operator mutates nothing of that kind and emits an
+`UnhandledKind` Warning Event on the SleepSchedule, then continues with the kinds
+it does handle. Support for more kinds is added by registering new handlers.
 
 **Exclusions** are always dropped, regardless of mode:
 

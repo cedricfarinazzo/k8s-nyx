@@ -40,30 +40,28 @@ func secretName(schedule *nyxv1alpha1.SleepSchedule) string {
 	return schedule.Name + "-checkpoint"
 }
 
-// Get returns the checkpointed replica count for key, and whether it was present.
-func (s *Store) Get(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string) (int32, bool, error) {
+// GetRaw returns the raw checkpointed value for key, and whether it was present.
+// It is the primitive every kind's handler uses to stash whatever it needs to
+// restore (a replica count, a JSON-encoded nodeSelector, …).
+func (s *Store) GetRaw(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string) (string, bool, error) {
 	sec := &corev1.Secret{}
 	err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: secretName(schedule)}, sec)
 	if apierrors.IsNotFound(err) {
-		return 0, false, nil
+		return "", false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return "", false, err
 	}
 	raw, ok := sec.Data[key]
 	if !ok {
-		return 0, false, nil
+		return "", false, nil
 	}
-	n, err := strconv.ParseInt(string(raw), 10, 32)
-	if err != nil {
-		return 0, false, fmt.Errorf("corrupt checkpoint %q: %w", key, err)
-	}
-	return int32(n), true, nil
+	return string(raw), true, nil
 }
 
-// Set records replicas for key, creating the Secret if needed. It does not
+// SetRaw records value for key, creating the Secret if needed. It does not
 // overwrite an existing key — the first write captures the true original.
-func (s *Store) Set(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string, replicas int32) error {
+func (s *Store) SetRaw(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key, value string) error {
 	sec := &corev1.Secret{}
 	name := secretName(schedule)
 	err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, sec)
@@ -75,7 +73,7 @@ func (s *Store) Set(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, ke
 				Namespace: s.Namespace,
 				Labels:    map[string]string{"app.kubernetes.io/managed-by": "k8s-nyx", "nyx.dev/schedule": schedule.Name},
 			},
-			Data: map[string][]byte{key: []byte(strconv.FormatInt(int64(replicas), 10))},
+			Data: map[string][]byte{key: []byte(value)},
 		}
 		return s.Client.Create(ctx, sec)
 	case err != nil:
@@ -87,8 +85,26 @@ func (s *Store) Set(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, ke
 	if sec.Data == nil {
 		sec.Data = map[string][]byte{}
 	}
-	sec.Data[key] = []byte(strconv.FormatInt(int64(replicas), 10))
+	sec.Data[key] = []byte(value)
 	return s.Client.Update(ctx, sec)
+}
+
+// Get returns the checkpointed replica count for key, and whether it was present.
+func (s *Store) Get(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string) (int32, bool, error) {
+	raw, found, err := s.GetRaw(ctx, schedule, key)
+	if err != nil || !found {
+		return 0, found, err
+	}
+	n, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		return 0, false, fmt.Errorf("corrupt checkpoint %q: %w", key, err)
+	}
+	return int32(n), true, nil
+}
+
+// Set records a replica count for key (write-once).
+func (s *Store) Set(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string, replicas int32) error {
+	return s.SetRaw(ctx, schedule, key, strconv.FormatInt(int64(replicas), 10))
 }
 
 // Delete removes the checkpoint entry for key (after a successful restore). When the

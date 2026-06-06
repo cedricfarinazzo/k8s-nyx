@@ -18,6 +18,7 @@ package workload
 const (
 	KindDeployment  = "Deployment"
 	KindStatefulSet = "StatefulSet"
+	KindDaemonSet   = "DaemonSet"
 )
 
 // Ref identifies a single selected workload.

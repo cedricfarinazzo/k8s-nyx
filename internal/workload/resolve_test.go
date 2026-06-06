@@ -196,15 +196,15 @@ func TestResolve_KindsFilter(t *testing.T) {
 func TestResolve_UnhandledKindReported(t *testing.T) {
 	r := newResolver(fixture()...)
 	spec := nyxv1alpha1.SleepScheduleSpec{
-		Kinds:  []string{"Deployment", "DaemonSet"},
+		Kinds:  []string{"Deployment", "CronJob"}, // CronJob has no handler yet
 		Target: nyxv1alpha1.Target{Mode: nyxv1alpha1.TargetModeNamespaces, Namespaces: []string{"team-a"}},
 	}
 	got, unhandled, err := r.Resolve(context.Background(), spec)
 	if err != nil {
 		t.Fatalf("unhandled kind must not error: %v", err)
 	}
-	if !equal(unhandled, []string{"DaemonSet"}) {
-		t.Fatalf("unhandled = %v, want [DaemonSet]", unhandled)
+	if !equal(unhandled, []string{"CronJob"}) {
+		t.Fatalf("unhandled = %v, want [CronJob]", unhandled)
 	}
 	// Deployments still resolved; nothing of the unhandled kind appears.
 	want := []string{"Deployment:team-a/api", "Deployment:team-a/critical-billing"}
