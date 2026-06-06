@@ -53,7 +53,8 @@ type Target struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
 
-// ResourceRef references a single workload by kind and name.
+// ResourceRef references a single workload by kind and name, optionally scoped
+// to a namespace.
 type ResourceRef struct {
 	// Kind is the workload kind, e.g. "Deployment".
 	// +kubebuilder:validation:MinLength=1
@@ -62,6 +63,11 @@ type ResourceRef struct {
 	// Name is the workload name.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
+
+	// Namespace scopes the reference to a single namespace. When empty the
+	// reference matches a workload of this kind and name in any namespace.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // TemporaryWake bounds the duration of ad-hoc wake overrides.

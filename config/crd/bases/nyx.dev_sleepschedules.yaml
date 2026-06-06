@@ -100,8 +100,9 @@ spec:
               excludeRefs:
                 description: ExcludeRefs lists individual workloads to leave untouched.
                 items:
-                  description: ResourceRef references a single workload by kind and
-                    name.
+                  description: |-
+                    ResourceRef references a single workload by kind and name, optionally scoped
+                    to a namespace.
                   properties:
                     kind:
                       description: Kind is the workload kind, e.g. "Deployment".
@@ -110,6 +111,11 @@ spec:
                     name:
                       description: Name is the workload name.
                       minLength: 1
+                      type: string
+                    namespace:
+                      description: |-
+                        Namespace scopes the reference to a single namespace. When empty the
+                        reference matches a workload of this kind and name in any namespace.
                       type: string
                   required:
                   - kind

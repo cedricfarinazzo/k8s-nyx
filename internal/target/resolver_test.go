@@ -124,6 +124,57 @@ func TestResolve_Exclusions(t *testing.T) {
 	}
 }
 
+// A namespace-scoped excludeRef drops only the matching namespace, not a
+// same-named workload in another namespace.
+func TestResolve_ExclusionsNamespaceScoped(t *testing.T) {
+	objs := append(fixture(), deploy("team-b", "api", map[string]string{"app": "api"}))
+	r := newResolver(objs...)
+	spec := nyxv1alpha1.SleepScheduleSpec{
+		Target: nyxv1alpha1.Target{Mode: nyxv1alpha1.TargetModeNamespaces, Namespaces: []string{"team-a", "team-b"}},
+		Kinds:  []string{"Deployment"},
+		// Only team-a/api is excluded; team-b/api must remain.
+		ExcludeRefs: []nyxv1alpha1.ResourceRef{{Kind: "Deployment", Namespace: "team-a", Name: "api"}},
+	}
+	got, err := r.Resolve(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"Deployment:team-a/critical-billing",
+		"Deployment:team-b/api",
+		"Deployment:team-b/api2",
+		"Deployment:team-b/web",
+	}
+	if g := keys(got); !equal(g, want) {
+		t.Fatalf("got %v, want %v", g, want)
+	}
+}
+
+// A namespace-less excludeRef stays a wildcard: it drops the kind+name in every
+// namespace (backward-compatible behaviour).
+func TestResolve_ExclusionsWildcardAllNamespaces(t *testing.T) {
+	objs := append(fixture(), deploy("team-b", "api", map[string]string{"app": "api"}))
+	r := newResolver(objs...)
+	spec := nyxv1alpha1.SleepScheduleSpec{
+		Target:      nyxv1alpha1.Target{Mode: nyxv1alpha1.TargetModeNamespaces, Namespaces: []string{"team-a", "team-b"}},
+		Kinds:       []string{"Deployment"},
+		ExcludeRefs: []nyxv1alpha1.ResourceRef{{Kind: "Deployment", Name: "api"}},
+	}
+	got, err := r.Resolve(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both team-a/api and team-b/api are excluded.
+	want := []string{
+		"Deployment:team-a/critical-billing",
+		"Deployment:team-b/api2",
+		"Deployment:team-b/web",
+	}
+	if g := keys(got); !equal(g, want) {
+		t.Fatalf("got %v, want %v", g, want)
+	}
+}
+
 // AC4: only kinds listed in spec.kinds are considered.
 func TestResolve_KindsFilter(t *testing.T) {
 	r := newResolver(fixture()...)
