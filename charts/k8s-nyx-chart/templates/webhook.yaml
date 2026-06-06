@@ -1,0 +1,80 @@
+{{- if .Values.webhook.enabled -}}
+{{- $fullName := include "k8s-nyx.fullname" . -}}
+{{- $svcName := printf "%s-webhook" $fullName -}}
+{{- $certName := printf "%s-webhook-cert" $fullName -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svcName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    {{- include "k8s-nyx.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ $fullName }}-validating
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ $certName }}
+  {{- end }}
+webhooks:
+- name: vsleepschedule-v1alpha1.kb.io
+  admissionReviewVersions:
+  - v1
+  sideEffects: None
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  clientConfig:
+    service:
+      name: {{ $svcName }}
+      namespace: {{ .Release.Namespace }}
+      path: /validate-nyx-dev-v1alpha1-sleepschedule
+  rules:
+  - apiGroups:
+    - nyx.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - sleepschedules
+{{- if .Values.webhook.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $fullName }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $certName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $certName }}
+  dnsNames:
+  - {{ $svcName }}.{{ .Release.Namespace }}.svc
+  - {{ $svcName }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ $fullName }}-selfsigned
+{{- end }}
+{{- end }}

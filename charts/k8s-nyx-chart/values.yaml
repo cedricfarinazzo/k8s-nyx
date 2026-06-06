@@ -1,0 +1,81 @@
+# Default values for k8s-nyx-chart.
+# This is a YAML-formatted file. Every key below is documented; override with
+# `--set key=value` or a custom values file at install time.
+
+# -- Operator container image. `tag` defaults to the chart's appVersion when
+# left empty, so a released chart pins the operator image that ships with it.
+image:
+  repository: ghcr.io/cedricfarinazzo/k8s-nyx
+  # Image tag. Empty string -> use .Chart.AppVersion (the released version).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries (list of {name: ...}).
+imagePullSecrets: []
+
+# -- Number of operator replicas. Leader election (below) ensures a single
+# active reconciler even when this is >1.
+replicaCount: 1
+
+# -- Leader election keeps exactly one replica reconciling. Keep enabled for HA.
+leaderElection:
+  enabled: true
+
+# -- ServiceAccount the operator runs as.
+serviceAccount:
+  # If true, the chart creates the ServiceAccount. If false, supply `name`.
+  create: true
+  # Name to use. Empty -> generated from the release name.
+  name: ""
+  annotations: {}
+
+# -- CustomResourceDefinitions. When true, the chart installs/updates the
+# SleepSchedule CRD. The CRD carries `helm.sh/resource-policy: keep` so it is
+# NOT deleted on `helm uninstall` (prevents accidental loss of user resources).
+# Set to false if the CRD is managed out-of-band.
+crds:
+  install: true
+
+# -- Validating admission webhook. Disabled by default: it requires TLS certs
+# (e.g. via cert-manager). With it disabled the operator runs with
+# ENABLE_WEBHOOKS=false and the CRD's OpenAPI validation still applies.
+webhook:
+  enabled: false
+  # failurePolicy for the ValidatingWebhookConfiguration (Fail | Ignore).
+  failurePolicy: Fail
+  certManager:
+    # When true (and webhook.enabled), the chart creates a cert-manager
+    # Issuer + Certificate and wires the CA into the webhook configuration.
+    # Requires cert-manager installed in the cluster.
+    enabled: true
+
+# -- Pod-level security context. Operator runs as non-root, read-only.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resource requests/limits for the operator container.
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Extra annotations/labels on the operator pod.
+podAnnotations: {}
+podLabels: {}
+
+# -- Scheduling controls.
+nodeSelector: {}
+tolerations: []
+affinity: {}

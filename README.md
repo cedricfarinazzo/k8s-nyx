@@ -13,9 +13,22 @@ Container images and the Helm chart are published to GitHub Container Registry (
 # Pull the image
 docker pull ghcr.io/cedricfarinazzo/k8s-nyx:latest
 
-# Install the chart
-helm install k8s-nyx oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart
+# Install the chart (pin a version with --version X.Y.Z)
+helm install k8s-nyx oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart \
+  --namespace k8s-nyx-system --create-namespace
 ```
+
+The chart installs the `SleepSchedule` CRD, RBAC, and the operator Deployment.
+The chart `version` and `appVersion` (the operator image tag) move together with
+each release. Common overrides (`helm show values oci://.../k8s-nyx-chart` for the
+full list):
+
+- `image.tag` — defaults to the chart's `appVersion`.
+- `crds.install` — set `false` to manage the CRD out-of-band. The CRD carries
+  `helm.sh/resource-policy: keep`, so it survives `helm uninstall`.
+- `webhook.enabled` — the validating webhook is **off by default** (it needs TLS
+  certs). Set `true` to enable it; `webhook.certManager.enabled` (default `true`)
+  wires a cert-manager `Issuer`/`Certificate`, so cert-manager must be installed.
 
 ## License
 
