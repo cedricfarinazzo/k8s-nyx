@@ -1,0 +1,5 @@
+# Conventional Commits linting. semantic-release derives the version from these
+# commit types (fix -> patch, feat -> minor, breaking -> major), so merges to
+# master must follow the convention. Enforced on PR commits in CI.
+extends:
+  - "@commitlint/config-conventional"
