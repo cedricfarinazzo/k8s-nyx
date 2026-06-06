@@ -38,12 +38,15 @@ type Entry struct {
 func ParseEntry(key, value string) (Entry, error) {
 	segments := strings.Split(value, ";")
 	head := strings.TrimSpace(segments[0])
-	if head == "" {
-		return Entry{}, fmt.Errorf("empty wake value")
-	}
 
 	e := Entry{Key: key}
+	// A head that is empty or itself a "k=v" attribute means no expiry/duration was
+	// given — the caller applies temporaryWake.defaultDuration. Then every segment
+	// (including the first) is an attribute.
+	attrSegments := segments[1:]
 	switch {
+	case head == "" || strings.Contains(head, "="):
+		attrSegments = segments
 	case strings.HasPrefix(head, "+"):
 		d, err := time.ParseDuration(head)
 		if err != nil {
@@ -61,7 +64,7 @@ func ParseEntry(key, value string) (Entry, error) {
 		e.Expiry = &t
 	}
 
-	for _, seg := range segments[1:] {
+	for _, seg := range attrSegments {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
@@ -78,6 +81,12 @@ func ParseEntry(key, value string) (Entry, error) {
 		}
 	}
 	return e, nil
+}
+
+// HasExpiry reports whether the entry carries an explicit expiry or relative
+// duration. False means "no expiry given" — apply the default duration.
+func (e Entry) HasExpiry() bool {
+	return e.Expiry != nil || e.Relative != nil
 }
 
 // ParseData parses every entry in a ConfigMap's data. It returns the valid entries
