@@ -145,8 +145,9 @@ spec:
                       type: string
                     type: array
                   selector:
-                    description: Selector is the namespace label selector when Mode
-                      is "labels".
+                    description: |-
+                      Selector is the workload label selector when Mode is "labels"; matching
+                      workloads are selected cluster-wide.
                     properties:
                       matchExpressions:
                         description: matchExpressions is a list of label selector
