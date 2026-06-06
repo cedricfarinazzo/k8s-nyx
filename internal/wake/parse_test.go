@@ -66,7 +66,6 @@ func TestParseEntry_Malformed(t *testing.T) {
 		value string
 	}{
 		{"bad timestamp", "not-a-time;by=x"},
-		{"empty", ""},
 		{"garbage", "????"},
 		{"bad duration", "+nonsense"},
 		{"zero duration", "+0s"},
@@ -78,6 +77,24 @@ func TestParseEntry_Malformed(t *testing.T) {
 				t.Fatalf("expected error for %q", c.value)
 			}
 		})
+	}
+}
+
+// A head-less value (empty or attribute-only) is a valid "no expiry" entry —
+// the caller applies the default duration.
+func TestParseEntry_NoExpiry(t *testing.T) {
+	for _, v := range []string{"", "by=alice;reason=lunch", ";by=bob"} {
+		e, err := ParseEntry("k", v)
+		if err != nil {
+			t.Fatalf("ParseEntry(%q) error: %v", v, err)
+		}
+		if e.HasExpiry() {
+			t.Fatalf("value %q should have no expiry", v)
+		}
+	}
+	e, _ := ParseEntry("k", "by=alice;reason=lunch")
+	if e.By != "alice" || e.Reason != "lunch" {
+		t.Fatalf("attribution not parsed from head-less value: %+v", e)
 	}
 }
 

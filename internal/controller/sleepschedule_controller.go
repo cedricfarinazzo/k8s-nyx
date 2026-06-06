@@ -190,14 +190,58 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 				"ignored malformed wake entry %q: %v", key, perr)
 		}
 	}
+	now := r.now()
+	def, max := temporaryWakeBounds(ss)
+	dirty := false
 	for _, e := range valid {
 		log.V(1).Info("wake entry", "key", e.Key, "by", e.By, "reason", e.Reason)
 		if r.Recorder != nil {
 			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
 				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
 		}
+		res, rerr := wake.Resolve(e, now, def, max)
+		if rerr != nil {
+			// e.g. no expiry and no defaultDuration configured — treat like malformed.
+			log.Info("cannot resolve wake entry", "key", e.Key, "error", rerr.Error())
+			if r.Recorder != nil {
+				r.Recorder.Eventf(ss, corev1.EventTypeWarning, "UnresolvableWakeEntry",
+					"ignored wake entry %q: %v", e.Key, rerr)
+			}
+			continue
+		}
+		if res.Changed {
+			cm.Data[e.Key] = wake.FormatEntry(res.Expiry, e.By, e.Reason)
+			dirty = true
+		}
+		if res.Clamped && r.Recorder != nil {
+			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeClamped",
+				"wake entry %q clamped to maxDuration (expiry %s)", e.Key, res.Expiry.UTC().Format(time.RFC3339))
+		}
+	}
+
+	// Persist any stamped/clamped values exactly once; subsequent reconciles see
+	// absolute, within-cap values and leave them unchanged (AC1 — no re-extend).
+	if dirty {
+		return r.Update(ctx, &cm)
 	}
 	return nil
+}
+
+// temporaryWakeBounds returns the configured default / max wake durations, or 0s
+// when temporaryWake is unset (no default available, no cap applied).
+func temporaryWakeBounds(ss *nyxv1alpha1.SleepSchedule) (def, max time.Duration) {
+	if tw := ss.Spec.TemporaryWake; tw != nil {
+		return tw.DefaultDuration.Duration, tw.MaxDuration.Duration
+	}
+	return 0, 0
+}
+
+// now returns the reconciler's clock (overridable in tests).
+func (r *SleepScheduleReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 // statusChanged reports whether the computed phase / nextTransition differ from

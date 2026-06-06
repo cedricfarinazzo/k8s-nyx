@@ -227,6 +227,94 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(audited).To(BeTrue(), "expected a Normal audit event with by/reason")
 	})
 
+	withTempWake := func() *nyxv1alpha1.SleepSchedule {
+		obj := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
+		}
+		obj.Spec.TemporaryWake = &nyxv1alpha1.TemporaryWake{
+			MaxDuration:     metav1.Duration{Duration: 8 * time.Hour},
+			DefaultDuration: metav1.Duration{Duration: time.Hour},
+		}
+		return obj
+	}
+	setWakeData := func(data map[string]string) {
+		cm := &corev1.ConfigMap{}
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+		cm.Data = data
+		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+	}
+	getWakeData := func() map[string]string {
+		cm := &corev1.ConfigMap{}
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+		return cm.Data
+	}
+
+	It("stamps +duration to absolute exactly once (AC1)", func() {
+		Expect(k8sClient.Create(ctx, withTempWake())).To(Succeed())
+		now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return now }}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		setWakeData(map[string]string{"bob": "+1h;by=bob"})
+		var ss nyxv1alpha1.SleepSchedule
+		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
+		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+
+		want := now.Add(time.Hour).UTC().Format(time.RFC3339)
+		Expect(getWakeData()["bob"]).To(Equal(want + ";by=bob"))
+
+		// A second pass at a LATER time must not re-extend the now-absolute value.
+		r.Now = func() time.Time { return now.Add(30 * time.Minute) }
+		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(getWakeData()["bob"]).To(Equal(want+";by=bob"), "absolute value must not re-extend")
+	})
+
+	It("applies defaultDuration to a no-expiry entry (AC2)", func() {
+		Expect(k8sClient.Create(ctx, withTempWake())).To(Succeed())
+		now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return now }}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		setWakeData(map[string]string{"alice": "by=alice;reason=lunch"})
+		var ss nyxv1alpha1.SleepSchedule
+		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
+		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+
+		want := now.Add(time.Hour).UTC().Format(time.RFC3339) // default 1h
+		Expect(getWakeData()["alice"]).To(Equal(want + ";by=alice;reason=lunch"))
+	})
+
+	It("clamps an over-cap expiry and records an Event (AC3)", func() {
+		Expect(k8sClient.Create(ctx, withTempWake())).To(Succeed())
+		now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+		rec := record.NewFakeRecorder(20)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Recorder: rec, Now: func() time.Time { return now }}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		over := now.Add(100 * time.Hour).UTC().Format(time.RFC3339)
+		setWakeData(map[string]string{"big": over})
+		var ss nyxv1alpha1.SleepSchedule
+		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
+		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+
+		want := now.Add(8 * time.Hour).UTC().Format(time.RFC3339) // clamped to max
+		Expect(getWakeData()["big"]).To(Equal(want))
+
+		var clamped bool
+		for len(rec.Events) > 0 {
+			if e := <-rec.Events; containsAll(e, "WakeClamped", "big") {
+				clamped = true
+			}
+		}
+		Expect(clamped).To(BeTrue(), "expected a WakeClamped Event")
+	})
+
 	It("reconciles a missing resource without error (no-op)", func() {
 		obj := &nyxv1alpha1.SleepSchedule{}
 		err := k8sClient.Get(ctx, nn, obj)
