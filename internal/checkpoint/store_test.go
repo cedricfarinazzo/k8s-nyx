@@ -33,6 +33,36 @@ func sched() *nyxv1alpha1.SleepSchedule {
 	return &nyxv1alpha1.SleepSchedule{ObjectMeta: metav1.ObjectMeta{Name: "sched", Namespace: "team-a"}}
 }
 
+func TestKey(t *testing.T) {
+	k := Key("Deployment", "team-a", "api", "uid-123")
+	if k != "apps_v1_Deployment_team-a_api_uid-123" {
+		t.Fatalf("Key = %q", k)
+	}
+	// Different UID ⇒ different key (guards against stale restore of a recreated workload).
+	if Key("Deployment", "team-a", "api", "uid-999") == k {
+		t.Fatal("keys with different UID must differ")
+	}
+}
+
+func TestStore_GetCorruptValue(t *testing.T) {
+	s, c := newStore()
+	ctx := context.Background()
+	if err := s.Set(ctx, sched(), "k", 3); err != nil {
+		t.Fatal(err)
+	}
+	sec := &corev1.Secret{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "nyx-system", Name: "sched-checkpoint"}, sec); err != nil {
+		t.Fatal(err)
+	}
+	sec.Data["k"] = []byte("not-an-int")
+	if err := c.Update(ctx, sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Get(ctx, sched(), "k"); err == nil {
+		t.Fatal("expected error for corrupt checkpoint value")
+	}
+}
+
 func TestStore_GetMissing(t *testing.T) {
 	s, _ := newStore()
 	if _, found, err := s.Get(context.Background(), sched(), "k"); err != nil || found {

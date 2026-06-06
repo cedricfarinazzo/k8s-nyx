@@ -211,6 +211,42 @@ func TestApply_EmitsEvents(t *testing.T) {
 	}
 }
 
+// A Deployment with nil spec.replicas is treated as 1 (the Kubernetes default).
+func TestApply_NilReplicasDefaultsToOne(t *testing.T) {
+	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "api", UID: "api-uid"}}
+	s, _ := newSleeper(d)
+	sch := schedule()
+	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+
+	if err := s.Apply(context.Background(), sch, true, []target.WorkloadRef{ref}); err != nil {
+		t.Fatal(err)
+	}
+	key := checkpoint.Key("Deployment", "team-a", "api", "api-uid")
+	orig, found, err := s.Store.Get(context.Background(), sch, key)
+	if err != nil || !found || orig != 1 {
+		t.Fatalf("checkpoint = (%d, %v, %v), want (1, true, nil)", orig, found, err)
+	}
+}
+
+// An unsupported kind is an error from the sleeper (the resolver never returns one,
+// but Apply guards against it).
+func TestApply_UnsupportedKind(t *testing.T) {
+	s, _ := newSleeper()
+	ref := target.WorkloadRef{Kind: "DaemonSet", Namespace: "team-a", Name: "x"}
+	if err := s.Apply(context.Background(), schedule(), true, []target.WorkloadRef{ref}); err == nil {
+		t.Fatal("expected error for unsupported kind")
+	}
+}
+
+// A target that no longer exists is skipped without error.
+func TestApply_MissingWorkloadSkipped(t *testing.T) {
+	s, _ := newSleeper()
+	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "gone"}
+	if err := s.Apply(context.Background(), schedule(), true, []target.WorkloadRef{ref}); err != nil {
+		t.Fatalf("missing workload should be skipped, got %v", err)
+	}
+}
+
 // dryRun never mutates the workload or writes a checkpoint.
 func TestApply_DryRun(t *testing.T) {
 	s, c := newSleeper(newDeployment("team-a", "api", 3))
