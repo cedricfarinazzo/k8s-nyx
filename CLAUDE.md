@@ -26,13 +26,16 @@ package:
 - **Schedule evaluation** (`internal/schedule`): awake windows are half-open
   `[from, to)` per weekday in the schedule's IANA timezone, built with
   `time.Date(..., loc)` so they stay anchored to wall-clock local time across DST.
-- **Targeting** (`internal/target`): `namespaces` mode selects in-scope workloads
-  in the listed namespaces; `labels` mode selects by selector cluster-wide.
-  `excludeRefs` (kind + name, optional namespace) are always dropped.
-- **Sleep/restore** (`internal/sleeper` + `internal/checkpoint`): the first sleep
-  records the current replica count once (never overwritten while asleep); wake
-  restores the exact count and clears the entry. The checkpoint is a Secret, so
-  it survives restarts.
+- **Targeting & dispatch** (`internal/workload`): a registry maps each kind to a
+  handler. The resolver lists the requested kinds (`namespaces` mode by listed
+  namespaces; `labels` mode by selector cluster-wide), drops `excludeRefs`
+  (kind + name, optional namespace), and reports any requested kind with no
+  handler (surfaced as a Warning, reconcile continues). The dispatcher applies
+  sleep/wake by calling the matching handler.
+- **Sleep/restore** (`internal/workload` handlers + `internal/checkpoint`): the
+  first sleep records the original state once (never overwritten while asleep);
+  wake restores it exactly and clears the entry. Deployment/StatefulSet handlers
+  scale `/spec/replicas`. The checkpoint is a Secret, so it survives restarts.
 - **Wake override** (`internal/wake` + reconciler): the operator owns a
   `<schedule>-wake` ConfigMap. Triggers write entries; the operator stamps
   relative `+duration`s to absolute (once), applies a default, clamps to a max,
@@ -49,11 +52,12 @@ package:
 - `api/v1alpha1/` — the `SleepSchedule` CRD types (group `nyx.dev`, `v1alpha1`).
 - `internal/controller/` — the reconciler loop.
 - `internal/schedule/` — pure, timezone-aware, DST-correct evaluation.
-- `internal/target/` — resolves the concrete workloads (`namespaces`/`labels`,
-  with `excludeRefs`).
+- `internal/workload/` — the per-kind **handler registry**: each kind's handler
+  owns `List` + `Sleep` + `Restore`; the resolver lists requested kinds
+  (`namespaces`/`labels`, with `excludeRefs`) and reports kinds with no handler;
+  the dispatcher applies sleep/wake. Deployment + StatefulSet handlers ship by
+  default (replica-based); new kinds plug in by registering a handler.
 - `internal/checkpoint/` — the exact-restore Secret store (keyed kind+ns+name+UID).
-- `internal/sleeper/` — scales targets and restores them; patches only
-  `/spec/replicas`.
 - `internal/wake/` — parses/resolves wake ConfigMap entries (RFC3339 or
   `+duration`, with `by`/`reason`).
 - `internal/webhook/v1alpha1/` — validating admission webhook (IANA timezone,

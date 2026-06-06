@@ -24,9 +24,8 @@ import (
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/schedule"
-	"github.com/cedricfarinazzo/k8s-nyx/internal/sleeper"
-	"github.com/cedricfarinazzo/k8s-nyx/internal/target"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/wake"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/workload"
 )
 
 // SleepScheduleReconciler reconciles a SleepSchedule object: it evaluates the
@@ -92,17 +91,28 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		phase = nyxv1alpha1.PhaseWokenByOverride
 	}
 
-	// Resolve targets and apply the sleep/wake decision.
-	resolver := &target.Resolver{Client: r.Client}
-	targets, err := resolver.Resolve(ctx, ss.Spec)
+	// Resolve targets and apply the sleep/wake decision. The registry maps each
+	// workload kind to its handler; kinds in spec.kinds with no handler resolve
+	// to nothing and are surfaced as Warning Events (reconcile continues).
+	reg := workload.Default()
+	resolver := &workload.Resolver{Client: r.Client, Registry: reg}
+	targets, unhandled, err := resolver.Resolve(ctx, ss.Spec)
 	if err != nil {
 		log.Error(err, "resolve targets", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
-	sl := &sleeper.Sleeper{
+	for _, kind := range unhandled {
+		log.Info("ignoring kind with no registered handler", "kind", kind, "sleepschedule", req.NamespacedName)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(&ss, corev1.EventTypeWarning, "UnhandledKind",
+				"spec.kinds includes %q but no handler is registered for it; it is ignored", kind)
+		}
+	}
+	sl := &workload.Sleeper{
 		Client:   r.Client,
 		Store:    &checkpoint.Store{Client: r.Client, Namespace: r.OperatorNamespace},
 		Recorder: r.Recorder,
+		Registry: reg,
 	}
 	if err := sl.Apply(ctx, &ss, effectiveAsleep, targets); err != nil {
 		log.Error(err, "apply sleep/wake", "sleepschedule", req.NamespacedName)

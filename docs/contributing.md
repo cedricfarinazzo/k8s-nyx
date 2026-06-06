@@ -67,7 +67,7 @@ CI additionally spins up a kind cluster, builds + loads the operator image,
 
 See [CLAUDE.md](../CLAUDE.md#project-structure) for the annotated tree. In short:
 `cmd/` (entrypoint) · `api/v1alpha1/` (CRD types) · `internal/` (controller +
-schedule/target/checkpoint/sleeper/wake/webhook packages) · `config/` (codegen
+schedule/workload/checkpoint/wake/webhook packages) · `config/` (codegen
 output) · `charts/` (Helm chart).
 
 ## Commits & releases

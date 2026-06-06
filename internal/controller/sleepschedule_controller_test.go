@@ -231,6 +231,33 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(audited).To(BeTrue(), "expected a Normal audit event with by/reason")
 	})
 
+	It("warns and continues when spec.kinds includes a kind with no handler (AC2)", func() {
+		obj := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
+		}
+		obj.Spec.Kinds = []string{"Deployment", "DaemonSet"} // DaemonSet has no handler
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		rec := record.NewFakeRecorder(20)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Recorder: rec}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred()) // reconcile continues without error
+
+		var events []string
+		Eventually(func() int { return len(rec.Events) }, "2s", "50ms").Should(BeNumerically(">=", 1))
+		for len(rec.Events) > 0 {
+			events = append(events, <-rec.Events)
+		}
+		var warned bool
+		for _, e := range events {
+			if containsAll(e, "Warning", "UnhandledKind", "DaemonSet") {
+				warned = true
+			}
+		}
+		Expect(warned).To(BeTrue(), "expected a Warning naming the unhandled kind")
+	})
+
 	withTempWake := func() *nyxv1alpha1.SleepSchedule {
 		obj := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
