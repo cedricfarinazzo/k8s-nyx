@@ -18,6 +18,19 @@ import (
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 )
 
+func validSpec() nyxv1alpha1.SleepScheduleSpec {
+	return nyxv1alpha1.SleepScheduleSpec{
+		Timezone: "Europe/Paris",
+		Awake: []nyxv1alpha1.AwakeWindow{
+			{Days: []nyxv1alpha1.Day{"Mon", "Tue"}, From: "08:00", To: "20:00"},
+		},
+		Target: nyxv1alpha1.Target{
+			Mode:       nyxv1alpha1.TargetModeNamespaces,
+			Namespaces: []string{"default"},
+		},
+	}
+}
+
 // AC4: the SleepSchedule type compiles, its CRD installs into envtest, and the
 // no-op reconciler returns no error / no requeue for both existing and missing objects.
 var _ = Describe("SleepSchedule controller", func() {
@@ -38,18 +51,20 @@ var _ = Describe("SleepSchedule controller", func() {
 	It("creates and reads a SleepSchedule (CRD is installed)", func() {
 		obj := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
-			Spec:       nyxv1alpha1.SleepScheduleSpec{Suspend: true},
+			Spec:       validSpec(),
 		}
 		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 		fetched := &nyxv1alpha1.SleepSchedule{}
 		Expect(k8sClient.Get(ctx, nn, fetched)).To(Succeed())
-		Expect(fetched.Spec.Suspend).To(BeTrue())
+		Expect(fetched.Spec.Timezone).To(Equal("Europe/Paris"))
+		Expect(fetched.Spec.Awake).To(HaveLen(1))
 	})
 
 	It("reconciles an existing resource without error or requeue (no-op)", func() {
 		obj := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
 		}
 		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 

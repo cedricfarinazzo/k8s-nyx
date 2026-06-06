@@ -14,7 +14,20 @@ spec:
     singular: sleepschedule
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.timezone
+      name: Timezone
+      type: string
+    - jsonPath: .status.nextTransition
+      name: Next
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SleepSchedule is the Schema for the sleepschedules API.
@@ -37,18 +50,188 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              SleepScheduleSpec defines the desired state of SleepSchedule.
-
-              This is a placeholder scaffold (VC-120). Real reconcile fields are added by E2.
+            description: SleepScheduleSpec defines the desired state of SleepSchedule.
             properties:
-              suspend:
-                description: Suspend pauses the schedule when true. Placeholder field.
+              awake:
+                description: |-
+                  Awake lists the windows during which targets are kept awake; outside all
+                  windows they are asleep.
+                items:
+                  description: AwakeWindow is a recurring window during which targets
+                    are kept awake.
+                  properties:
+                    days:
+                      description: Days this window applies to.
+                      items:
+                        description: Day is a day of the week an awake window applies
+                          to.
+                        enum:
+                        - Mon
+                        - Tue
+                        - Wed
+                        - Thu
+                        - Fri
+                        - Sat
+                        - Sun
+                        type: string
+                      minItems: 1
+                      type: array
+                    from:
+                      description: From is the window start, "HH:MM" 24-hour, in the
+                        schedule's timezone.
+                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                      type: string
+                    to:
+                      description: To is the window end, "HH:MM" 24-hour, in the schedule's
+                        timezone.
+                      pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                      type: string
+                  required:
+                  - days
+                  - from
+                  - to
+                  type: object
+                minItems: 1
+                type: array
+              dryRun:
+                description: DryRun, when true, logs intended actions without mutating
+                  workloads.
                 type: boolean
+              excludeRefs:
+                description: ExcludeRefs lists individual workloads to leave untouched.
+                items:
+                  description: ResourceRef references a single workload by kind and
+                    name.
+                  properties:
+                    kind:
+                      description: Kind is the workload kind, e.g. "Deployment".
+                      minLength: 1
+                      type: string
+                    name:
+                      description: Name is the workload name.
+                      minLength: 1
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              kinds:
+                description: Kinds restricts the workload kinds in scope. Empty means
+                  the operator default set.
+                items:
+                  type: string
+                type: array
+              sleepReplicas:
+                default: 0
+                description: SleepReplicas is the replica count applied while asleep.
+                format: int32
+                minimum: 0
+                type: integer
+              target:
+                description: Target selects the namespaces this schedule acts on.
+                properties:
+                  mode:
+                    description: Mode is either "namespaces" (explicit list) or "labels"
+                      (selector).
+                    enum:
+                    - namespaces
+                    - labels
+                    type: string
+                  namespaces:
+                    description: Namespaces is the explicit namespace list when Mode
+                      is "namespaces".
+                    items:
+                      type: string
+                    type: array
+                  selector:
+                    description: Selector is the namespace label selector when Mode
+                      is "labels".
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - mode
+                type: object
+              temporaryWake:
+                description: TemporaryWake bounds ad-hoc wake overrides.
+                properties:
+                  defaultDuration:
+                    description: DefaultDuration is used when a wake request omits
+                      a duration (e.g. "1h").
+                    type: string
+                  maxDuration:
+                    description: MaxDuration is the safety cap on a single wake (e.g.
+                      "8h").
+                    type: string
+                required:
+                - defaultDuration
+                - maxDuration
+                type: object
+              timezone:
+                description: |-
+                  Timezone is an IANA timezone name (e.g. "Europe/Paris"). Validated by the
+                  admission webhook against the IANA database.
+                minLength: 1
+                type: string
+            required:
+            - awake
+            - target
+            - timezone
             type: object
           status:
             description: SleepScheduleStatus defines the observed state of SleepSchedule.
             properties:
+              activeWakes:
+                description: ActiveWakes is the number of non-expired temporary wake
+                  entries.
+                format: int32
+                type: integer
+              argocdManaged:
+                description: ArgocdManaged reports whether any target is managed by
+                  ArgoCD.
+                type: boolean
               conditions:
                 description: Conditions represent the latest available observations
                   of the object's state.
@@ -110,6 +293,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nextTransition:
+                description: NextTransition is when the schedule next changes state.
+                format: date-time
+                type: string
+              phase:
+                description: Phase is the current high-level state.
+                enum:
+                - Asleep
+                - Awake
+                - WokenByOverride
+                type: string
             type: object
         type: object
     served: true
