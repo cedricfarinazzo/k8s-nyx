@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.2.0...v1.3.0) (2026-06-06)
+
+
+### Features
+
+* **workload:** neutralize & restore HPA min/max on sleep ([#32](https://github.com/cedricfarinazzo/k8s-nyx/issues/32)) ([f0dac8d](https://github.com/cedricfarinazzo/k8s-nyx/commit/f0dac8d31eeeb2fa9d619567629edd1ad464e0d9))
+
 # [1.2.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.1.0...v1.2.0) (2026-06-06)
 
 
