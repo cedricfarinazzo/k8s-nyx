@@ -54,7 +54,7 @@ func (r *Resolver) Resolve(ctx context.Context, spec nyxv1alpha1.SleepScheduleSp
 			return nil, err
 		}
 		for _, ref := range found {
-			if _, skip := excluded[exKey(ref.Kind, ref.Name)]; skip {
+			if isExcluded(excluded, ref) {
 				continue
 			}
 			refs = append(refs, ref)
@@ -154,9 +154,20 @@ func supportedKinds(requested []string) []string {
 func excludeSet(refs []nyxv1alpha1.ResourceRef) map[string]struct{} {
 	set := make(map[string]struct{}, len(refs))
 	for _, r := range refs {
-		set[exKey(r.Kind, r.Name)] = struct{}{}
+		set[exKey(r.Kind, r.Namespace, r.Name)] = struct{}{}
 	}
 	return set
 }
 
-func exKey(kind, name string) string { return kind + "/" + name }
+// isExcluded reports whether ref matches an excludeRef. A namespaced excludeRef
+// matches only that namespace; a namespace-less one matches the kind+name in any
+// namespace (wildcard).
+func isExcluded(excluded map[string]struct{}, ref WorkloadRef) bool {
+	if _, ok := excluded[exKey(ref.Kind, "", ref.Name)]; ok {
+		return true
+	}
+	_, ok := excluded[exKey(ref.Kind, ref.Namespace, ref.Name)]
+	return ok
+}
+
+func exKey(kind, namespace, name string) string { return kind + "/" + namespace + "/" + name }
