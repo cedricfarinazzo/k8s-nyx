@@ -8,6 +8,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +23,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/schedule"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/wake"
@@ -115,6 +117,8 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Store:    &checkpoint.Store{Client: r.Client, Namespace: r.OperatorNamespace},
 		Recorder: r.Recorder,
 		Registry: reg,
+		Who:      audit.DefaultActor,
+		Why:      auditReason(effectiveAsleep, forcedAwake),
 	}
 	if err := sl.Apply(ctx, &ss, effectiveAsleep, targets); err != nil {
 		log.Error(err, "apply sleep/wake", "sleepschedule", req.NamespacedName)
@@ -166,6 +170,19 @@ func requeueDelay(now, nextTransition, earliestExpiry time.Time) time.Duration {
 	consider(nextTransition)
 	consider(earliestExpiry)
 	return best
+}
+
+// auditReason describes why this reconcile pass slept/woke the targets, for the
+// audit trail's "why".
+func auditReason(asleep, forcedAwake bool) string {
+	switch {
+	case asleep:
+		return "asleep window"
+	case forcedAwake:
+		return "active wake override"
+	default:
+		return "awake window"
+	}
 }
 
 // WakeConfigMapName is the name of the per-schedule Wake ConfigMap.
@@ -262,6 +279,9 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 				r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeExpired",
 					"wake entry %q expired and was removed", e.Key)
 			}
+			// Audit log only — the WakeExpired Event above already covers AC2.
+			audit.Record(audit.NewContext(ctx, audit.Info{Why: "wake entry expired"}), nil, ss,
+				"", "", "", "WakeExpired", fmt.Sprintf("wake entry %q expired", e.Key))
 			continue
 		}
 
@@ -279,6 +299,9 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
 				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
 		}
+		// Audit log only — the WakeEntryAccepted Event above already covers AC2.
+		audit.Record(audit.NewContext(ctx, audit.Info{Who: e.By, Why: e.Reason}), nil, ss,
+			"", "", "", "WakeOverride", fmt.Sprintf("wake entry %q active", e.Key))
 	}
 
 	if dirty {

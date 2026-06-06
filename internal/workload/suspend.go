@@ -17,6 +17,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 )
 
@@ -65,6 +66,7 @@ func sleepSuspend(ctx context.Context, c client.Client, rec record.EventRecorder
 		return err
 	}
 	emit(rec, w.obj, "Slept", "set spec.suspend=true")
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Slept", "set spec.suspend=true")
 	return nil
 }
 
@@ -93,5 +95,6 @@ func restoreSuspend(ctx context.Context, c client.Client, rec record.EventRecord
 		return err
 	}
 	emit(rec, w.obj, "Woke", "restored spec.suspend")
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Woke", "restored spec.suspend")
 	return store.Delete(ctx, schedule, key)
 }

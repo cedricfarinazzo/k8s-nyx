@@ -18,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 )
 
@@ -96,7 +97,9 @@ func (hpaHandler) Sleep(ctx context.Context, c client.Client, rec record.EventRe
 	if err := c.Patch(ctx, hpa, patch); err != nil {
 		return err
 	}
-	emit(rec, hpa, "Slept", fmt.Sprintf("neutralized HPA min/max to %d", neutralized))
+	msg := fmt.Sprintf("neutralized HPA min/max to %d", neutralized)
+	emit(rec, hpa, "Slept", msg)
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Slept", msg)
 	return nil
 }
 
@@ -129,6 +132,7 @@ func (hpaHandler) Restore(ctx context.Context, c client.Client, rec record.Event
 		return err
 	}
 	emit(rec, hpa, "Woke", "restored HPA min/max")
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Woke", "restored HPA min/max")
 	return store.Delete(ctx, schedule, key)
 }
 

@@ -44,7 +44,9 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager.")
-	opts := zap.Options{Development: true}
+	// Development:false selects zap's JSON encoder, so the lifecycle audit logs
+	// are structured JSON (overridable via the --zap-* flags).
+	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 

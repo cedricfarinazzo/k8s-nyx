@@ -101,6 +101,26 @@ kubectl get events -A --field-selector reason=Woke
 Health endpoints are exposed on `:8081` (`/healthz`, `/readyz`) and wired to the
 pod's liveness/readiness probes.
 
+### Audit trail
+
+Every lifecycle action (sleep, wake, restore, wake-override, expiry) is audited
+two ways:
+
+- **Structured JSON logs** — each action logs a line with `action`, `who`
+  (`k8s-nyx` for schedule-driven actions, the wake `by` for an override), `why`
+  (`asleep window` / `awake window` / `active wake override` / `wake entry
+  expired`), `when` (RFC3339), and `objectRef` (`Kind/namespace/name`) for
+  correlation, plus the `sleepSchedule`. Logs are JSON by default (override with
+  the `--zap-*` flags).
+- **Kubernetes Events** — a corresponding Event is recorded on the
+  `SleepSchedule` for each action (`kubectl describe sleepschedule <name>`), in
+  addition to the per-workload `Slept`/`Woke` Events.
+
+```sh
+kubectl -n k8s-nyx-system logs deploy/k8s-nyx-k8s-nyx-chart | jq 'select(.msg=="audit")'
+kubectl describe sleepschedule <name> -n <ns>   # Events: Slept / Woke / WakeEntryAccepted / WakeExpired …
+```
+
 ## Upgrades
 
 ```sh
