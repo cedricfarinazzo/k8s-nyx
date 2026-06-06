@@ -121,6 +121,39 @@ kubectl -n k8s-nyx-system logs deploy/k8s-nyx-k8s-nyx-chart | jq 'select(.msg=="
 kubectl describe sleepschedule <name> -n <ns>   # Events: Slept / Woke / WakeEntryAccepted / WakeExpired …
 ```
 
+### Prometheus metrics
+
+The operator serves Prometheus metrics on `/metrics` (container port `8080` by
+default; `--metrics-bind-address=0` disables it). Every series is labelled
+`schedule` and `namespace`:
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `nyx_targets_asleep` | gauge | Targeted workloads currently asleep. |
+| `nyx_targets_awake` | gauge | Targeted workloads currently awake. |
+| `nyx_active_wakes` | gauge | Active (non-expired) wake override entries. |
+| `nyx_override_seconds_remaining` | gauge | Seconds until the earliest active override expires (0 when none). |
+| `nyx_restore_failures_total` | counter | Failed restore (wake) attempts. |
+
+Scrape with a `PodMonitor`/`ServiceMonitor` on port `metrics`, or annotate the
+pod for the Prometheus annotation-based discovery.
+
+Example PromQL:
+
+```promql
+# workloads asleep right now (cluster-wide)
+sum(nyx_targets_asleep)
+
+# schedules with an active override, and time left
+nyx_override_seconds_remaining > 0
+
+# restore failures in the last hour, per schedule
+increase(nyx_restore_failures_total[1h])
+
+# is a given schedule asleep?
+nyx_targets_asleep{schedule="dev-hours", namespace="team-a"} > 0
+```
+
 ## Upgrades
 
 ```sh

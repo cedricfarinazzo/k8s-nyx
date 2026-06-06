@@ -52,8 +52,11 @@ spec:
         {{- end }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
-        {{- if .Values.webhook.enabled }}
         ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        {{- if .Values.webhook.enabled }}
         - name: webhook-server
           containerPort: 9443
           protocol: TCP

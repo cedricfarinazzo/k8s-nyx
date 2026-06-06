@@ -39,7 +39,7 @@ func main() {
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0",
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metrics endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,

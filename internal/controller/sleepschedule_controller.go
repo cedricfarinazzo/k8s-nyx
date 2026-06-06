@@ -25,6 +25,7 @@ import (
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/metrics"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/schedule"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/wake"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/workload"
@@ -61,6 +62,9 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	var ss nyxv1alpha1.SleepSchedule
 	if err := r.Get(ctx, req.NamespacedName, &ss); err != nil {
+		if apierrors.IsNotFound(err) {
+			metrics.Delete(req.Namespace, req.Name) // drop stale series for a deleted schedule
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -121,9 +125,21 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Why:      auditReason(effectiveAsleep, forcedAwake),
 	}
 	if err := sl.Apply(ctx, &ss, effectiveAsleep, targets); err != nil {
+		if !effectiveAsleep {
+			metrics.IncRestoreFailure(ss.Namespace, ss.Name)
+		}
 		log.Error(err, "apply sleep/wake", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
+
+	// Publish per-schedule metrics for this pass.
+	overrideSecondsLeft := 0.0
+	if ws.ActiveCount > 0 && !ws.Earliest.IsZero() {
+		if d := ws.Earliest.Sub(now); d > 0 {
+			overrideSecondsLeft = d.Seconds()
+		}
+	}
+	metrics.Set(ss.Namespace, ss.Name, effectiveAsleep, len(targets), ws.ActiveCount, overrideSecondsLeft)
 
 	// Update status only when it actually changed — repeated reconciles with no
 	// time change must not write (AC4 idempotency).
