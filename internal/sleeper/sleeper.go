@@ -13,7 +13,9 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -26,6 +28,8 @@ import (
 type Sleeper struct {
 	Client client.Client
 	Store  *checkpoint.Store
+	// Recorder emits Events on affected workloads; may be nil (events skipped).
+	Recorder record.EventRecorder
 }
 
 // workload abstracts the replica-bearing fields shared by Deployment / StatefulSet.
@@ -68,13 +72,11 @@ func (s *Sleeper) applyOne(ctx context.Context, schedule *nyxv1alpha1.SleepSched
 		if !found {
 			if schedule.Spec.DryRun {
 				log.Info("dry-run: would checkpoint + sleep", "ref", ref, "replicas", w.replicas)
-				return nil
-			}
-			if err := s.Store.Set(ctx, schedule, key, w.replicas); err != nil {
+			} else if err := s.Store.Set(ctx, schedule, key, w.replicas); err != nil {
 				return err
 			}
 		}
-		return s.patchReplicas(ctx, w, schedule.Spec.SleepReplicas, schedule.Spec.DryRun)
+		return s.patchReplicas(ctx, w, schedule.Spec.SleepReplicas, schedule.Spec.DryRun, "Slept")
 	}
 
 	// Awake: restore from checkpoint if present, then clear it.
@@ -85,29 +87,42 @@ func (s *Sleeper) applyOne(ctx context.Context, schedule *nyxv1alpha1.SleepSched
 	if !found {
 		return nil // never slept by us
 	}
-	if schedule.Spec.DryRun {
-		log.Info("dry-run: would restore", "ref", ref, "replicas", orig)
-		return nil
-	}
-	if err := s.patchReplicas(ctx, w, orig, false); err != nil {
+	if err := s.patchReplicas(ctx, w, orig, schedule.Spec.DryRun, "Woke"); err != nil {
 		return err
 	}
+	if schedule.Spec.DryRun {
+		return nil // leave the checkpoint in place; nothing was mutated
+	}
+	// Clear the entry even if the workload was already at the original (idempotent).
 	return s.Store.Delete(ctx, schedule, key)
 }
 
 // patchReplicas sets spec.replicas to want via a merge patch (only /spec/replicas
-// is in the patch, honouring the ArgoCD contract). No-op if already at want.
-func (s *Sleeper) patchReplicas(ctx context.Context, w *workload, want int32, dryRun bool) error {
+// is in the patch, honouring the ArgoCD contract). It is a no-op (no write, no
+// event) when already at want.
+func (s *Sleeper) patchReplicas(ctx context.Context, w *workload, want int32, dryRun bool, reason string) error {
 	if w.replicas == want {
 		return nil
 	}
 	if dryRun {
 		logf.FromContext(ctx).Info("dry-run: would scale", "to", want)
+		s.emit(w.obj, "DryRun"+reason, fmt.Sprintf("dry-run: would scale to %d replicas", want))
 		return nil
 	}
 	patch := client.MergeFrom(w.obj.DeepCopyObject().(client.Object))
 	w.setReplicas(want)
-	return s.Client.Patch(ctx, w.obj, patch)
+	if err := s.Client.Patch(ctx, w.obj, patch); err != nil {
+		return err
+	}
+	s.emit(w.obj, reason, fmt.Sprintf("scaled to %d replicas", want))
+	return nil
+}
+
+// emit records a Normal Event on obj if a recorder is configured.
+func (s *Sleeper) emit(obj client.Object, reason, message string) {
+	if s.Recorder != nil {
+		s.Recorder.Event(obj, corev1.EventTypeNormal, reason, message)
+	}
 }
 
 // load fetches the workload and exposes its replicas + UID. Returns nil if the

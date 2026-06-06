@@ -8,6 +8,7 @@ package sleeper
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -169,9 +171,51 @@ func TestApply_StatefulSet(t *testing.T) {
 	}
 }
 
+// drain returns all currently-buffered events from a FakeRecorder.
+func drain(rec *record.FakeRecorder) []string {
+	var out []string
+	for {
+		select {
+		case e := <-rec.Events:
+			out = append(out, e)
+		default:
+			return out
+		}
+	}
+}
+
+// AC3: sleep and wake emit Events on the affected workload; a no-op emits none (AC4).
+func TestApply_EmitsEvents(t *testing.T) {
+	s, _ := newSleeper(newDeployment("team-a", "api", 3))
+	rec := record.NewFakeRecorder(10)
+	s.Recorder = rec
+	sch := schedule()
+	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ctx := context.Background()
+
+	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // sleep
+	ev := drain(rec)
+	if len(ev) != 1 || !strings.Contains(ev[0], "Slept") {
+		t.Fatalf("sleep events = %v, want one Slept", ev)
+	}
+
+	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // already asleep → no-op
+	if ev := drain(rec); len(ev) != 0 {
+		t.Fatalf("no-op sleep should emit no events, got %v", ev)
+	}
+
+	_ = s.Apply(ctx, sch, false, []target.WorkloadRef{ref}) // wake
+	ev = drain(rec)
+	if len(ev) != 1 || !strings.Contains(ev[0], "Woke") {
+		t.Fatalf("wake events = %v, want one Woke", ev)
+	}
+}
+
 // dryRun never mutates the workload or writes a checkpoint.
 func TestApply_DryRun(t *testing.T) {
 	s, c := newSleeper(newDeployment("team-a", "api", 3))
+	rec := record.NewFakeRecorder(10)
+	s.Recorder = rec
 	sch := schedule()
 	sch.Spec.DryRun = true
 	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
@@ -185,5 +229,10 @@ func TestApply_DryRun(t *testing.T) {
 	key := checkpoint.Key("Deployment", "team-a", "api", "api-uid")
 	if _, found, _ := s.Store.Get(context.Background(), sch, key); found {
 		t.Fatalf("dry-run should not write a checkpoint")
+	}
+	// AC1: dry-run still emits an Event describing the intended action.
+	ev := drain(rec)
+	if len(ev) != 1 || !strings.Contains(ev[0], "dry-run") {
+		t.Fatalf("dry-run events = %v, want one dry-run event", ev)
 	}
 }
