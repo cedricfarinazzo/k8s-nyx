@@ -11,6 +11,10 @@ issues:
       linters:
         - dupl
         - lll
+    # Test helpers often take params that only vary in some callers; unparam noise.
+    - path: "_test\\.go"
+      linters:
+        - unparam
 
 linters:
   disable-all: true
