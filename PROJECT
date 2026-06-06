@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: nyx.dev
+domain: dev
 layout:
 - go.kubebuilder.io/v4
 projectName: k8s-nyx
@@ -12,7 +12,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: nyx.dev
+  domain: dev
   group: nyx
   kind: SleepSchedule
   path: github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1

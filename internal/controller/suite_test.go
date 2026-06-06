@@ -8,8 +8,8 @@ package controller
 
 import (
 	"context"
+	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -47,8 +47,9 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
-		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
-			"1.31.0-"+runtime.GOOS+"-"+runtime.GOARCH),
+		// The KUBEBUILDER_ASSETS env var (set by `make test` via setup-envtest)
+		// takes precedence; this is the fallback for a direct `go test ./...`.
+		BinaryAssetsDirectory: getFirstFoundEnvTestBinaryDir(),
 	}
 
 	var err error
@@ -68,3 +69,21 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	Expect(testEnv.Stop()).To(Succeed())
 })
+
+// getFirstFoundEnvTestBinaryDir locates the first envtest binary directory under
+// bin/k8s, so a direct `go test ./...` (without KUBEBUILDER_ASSETS) still finds
+// the assets `make envtest` installed, regardless of the k8s version/arch suffix.
+func getFirstFoundEnvTestBinaryDir() string {
+	basePath := filepath.Join("..", "..", "bin", "k8s")
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		logf.Log.Error(err, "Failed to read directory", "path", basePath)
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return filepath.Join(basePath, entry.Name())
+		}
+	}
+	return ""
+}
