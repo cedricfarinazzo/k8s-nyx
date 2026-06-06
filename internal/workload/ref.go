@@ -19,6 +19,8 @@ const (
 	KindDeployment  = "Deployment"
 	KindStatefulSet = "StatefulSet"
 	KindDaemonSet   = "DaemonSet"
+	KindCronJob     = "CronJob"
+	KindJob         = "Job"
 )
 
 // Ref identifies a single selected workload.

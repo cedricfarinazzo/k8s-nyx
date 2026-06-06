@@ -30,6 +30,17 @@ rules:
   - update
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - nyx.dev
   resources:
   - sleepschedules

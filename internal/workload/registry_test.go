@@ -10,7 +10,7 @@ import "testing"
 
 func TestRegistry_DefaultKinds(t *testing.T) {
 	reg := Default()
-	want := []string{KindDeployment, KindStatefulSet, KindDaemonSet}
+	want := []string{KindDeployment, KindStatefulSet, KindDaemonSet, KindCronJob, KindJob}
 	got := reg.Kinds()
 	if len(got) != len(want) {
 		t.Fatalf("Kinds() = %v, want %v", got, want)
@@ -27,14 +27,14 @@ func TestRegistry_GetAndHas(t *testing.T) {
 	if h, ok := reg.Get(KindDeployment); !ok || h.Kind() != KindDeployment {
 		t.Fatalf("Get(Deployment) = (%v, %v)", h, ok)
 	}
-	if !reg.Has(KindStatefulSet) || !reg.Has(KindDaemonSet) {
-		t.Fatal("Has(StatefulSet/DaemonSet) = false, want true")
+	if !reg.Has(KindStatefulSet) || !reg.Has(KindDaemonSet) || !reg.Has(KindCronJob) || !reg.Has(KindJob) {
+		t.Fatal("Has(StatefulSet/DaemonSet/CronJob/Job) = false, want true")
 	}
-	if _, ok := reg.Get("CronJob"); ok {
-		t.Fatal("Get(CronJob) ok = true, want false (no handler)")
+	if _, ok := reg.Get("ReplicaSet"); ok {
+		t.Fatal("Get(ReplicaSet) ok = true, want false (no handler)")
 	}
-	if reg.Has("CronJob") {
-		t.Fatal("Has(CronJob) = true, want false")
+	if reg.Has("ReplicaSet") {
+		t.Fatal("Has(ReplicaSet) = true, want false")
 	}
 }
 
