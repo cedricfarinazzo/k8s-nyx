@@ -21,6 +21,7 @@ import (
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/controller"
+	webhooknyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/internal/webhook/v1alpha1"
 )
 
 var (
@@ -69,6 +70,14 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SleepSchedule")
 		os.Exit(1)
+	}
+
+	// ENABLE_WEBHOOKS=false lets tests / local runs without certs skip the webhook.
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = webhooknyxv1alpha1.SetupSleepScheduleWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "SleepSchedule")
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
