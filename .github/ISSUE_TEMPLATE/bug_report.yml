@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a problem with k8s-nyx
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug. Please fill in the details below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (and a SleepSchedule manifest, if relevant) to reproduce the behaviour.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: k8s-nyx version, image tag, or git commit.
+    validations:
+      required: false
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Kubernetes version
+      description: Output of `kubectl version --short`.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Controller logs or events. This will be rendered as code, so no backticks needed.
+      render: shell
+    validations:
+      required: false
