@@ -31,7 +31,7 @@ func NewRegistry(handlers ...Handler) *Registry {
 // StatefulSet (replica-based). Additional kinds are registered by their own
 // stories.
 func Default() *Registry {
-	return NewRegistry(deploymentHandler{}, statefulSetHandler{}, daemonSetHandler{})
+	return NewRegistry(deploymentHandler{}, statefulSetHandler{}, daemonSetHandler{}, cronJobHandler{}, jobHandler{})
 }
 
 // Get returns the handler for kind, and whether one is registered.

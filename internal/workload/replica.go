@@ -115,6 +115,13 @@ func emit(rec record.EventRecorder, obj client.Object, reason, message string) {
 	}
 }
 
+// warn records a Warning Event on obj if a recorder is configured.
+func warn(rec record.EventRecorder, obj client.Object, reason, message string) {
+	if rec != nil {
+		rec.Event(obj, corev1.EventTypeWarning, reason, message)
+	}
+}
+
 func replicasOf(p *int32) int32 {
 	if p == nil {
 		return 1 // Kubernetes default when spec.replicas is unset

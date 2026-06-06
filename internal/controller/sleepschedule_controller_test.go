@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,6 +70,8 @@ var _ = Describe("SleepSchedule controller", func() {
 		}
 		// Clean any workload + checkpoint Secret a test created, so specs stay isolated.
 		_ = k8sClient.Delete(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web"}})
+		_ = k8sClient.Delete(ctx, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "agent"}})
+		_ = k8sClient.Delete(ctx, &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "report"}})
 		_ = k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: resourceName + "-checkpoint"}})
 	})
 
@@ -236,7 +239,7 @@ var _ = Describe("SleepSchedule controller", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
 			Spec:       validSpec(),
 		}
-		obj.Spec.Kinds = []string{"Deployment", "CronJob"} // CronJob has no handler yet
+		obj.Spec.Kinds = []string{"Deployment", "ReplicaSet"} // ReplicaSet has no handler yet
 		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
 		rec := record.NewFakeRecorder(20)
@@ -251,7 +254,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		}
 		var warned bool
 		for _, e := range events {
-			if containsAll(e, "Warning", "UnhandledKind", "CronJob") {
+			if containsAll(e, "Warning", "UnhandledKind", "ReplicaSet") {
 				warned = true
 			}
 		}
@@ -453,6 +456,57 @@ var _ = Describe("SleepSchedule controller", func() {
 		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(nodeSel()).To(Equal(map[string]string{"disktype": "ssd"}))
+	})
+
+	It("sleeps and restores a CronJob via spec.suspend (VC-138)", func() {
+		paris, err := time.LoadLocation("Europe/Paris")
+		Expect(err).NotTo(HaveOccurred())
+		sched := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(), // default kinds include CronJob
+		}
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+
+		cj := &batchv1.CronJob{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "report"},
+			Spec: batchv1.CronJobSpec{
+				Schedule: "*/5 * * * *",
+				JobTemplate: batchv1.JobTemplateSpec{
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers:    []corev1.Container{{Name: "c", Image: "busybox"}},
+							},
+						},
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, cj)).To(Succeed())
+
+		suspend := func() *bool {
+			c := &batchv1.CronJob{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "report"}, c)).To(Succeed())
+			return c.Spec.Suspend
+		}
+
+		// Saturday → asleep: suspended.
+		asleep := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), OperatorNamespace: namespace, Now: func() time.Time { return asleep }}
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(suspend()).NotTo(BeNil())
+		Expect(*suspend()).To(BeTrue())
+
+		// Monday 10:00 → awake: restored to the exact original. The API server
+		// defaults CronJob spec.suspend to false on create, so the checkpointed
+		// original is false (not nil) — restore brings it back to false.
+		r.Now = func() time.Time { return time.Date(2026, 6, 1, 10, 0, 0, 0, paris) }
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(suspend()).NotTo(BeNil())
+		Expect(*suspend()).To(BeFalse())
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {
