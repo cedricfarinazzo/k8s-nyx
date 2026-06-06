@@ -7,6 +7,7 @@ Licensed under the MIT License.
 package controller
 
 import (
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -16,10 +17,20 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 )
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}
 
 func validSpec() nyxv1alpha1.SleepScheduleSpec {
 	return nyxv1alpha1.SleepScheduleSpec{
@@ -169,6 +180,51 @@ var _ = Describe("SleepSchedule controller", func() {
 		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+	})
+
+	It("warns on malformed wake entries and audits accepted ones (AC3/AC4)", func() {
+		obj := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		rec := record.NewFakeRecorder(20)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Recorder: rec}
+		// First reconcile creates the Wake ConfigMap.
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Write a valid and a malformed entry into it.
+		cm := &corev1.ConfigMap{}
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+		cm.Data = map[string]string{
+			"alice-1": "2026-06-05T15:00:00Z;by=alice;reason=debug",
+			"bad-1":   "not-a-time",
+		}
+		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+
+		var ss nyxv1alpha1.SleepSchedule
+		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
+		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+
+		var events []string
+		Eventually(func() int { return len(rec.Events) }, "2s", "50ms").Should(BeNumerically(">=", 2))
+		for len(rec.Events) > 0 {
+			events = append(events, <-rec.Events)
+		}
+		var warned, audited bool
+		for _, e := range events {
+			if containsAll(e, "Warning", "MalformedWakeEntry", "bad-1") {
+				warned = true
+			}
+			if containsAll(e, "Normal", "WakeEntryAccepted", "alice-1", "alice") {
+				audited = true
+			}
+		}
+		Expect(warned).To(BeTrue(), "expected a Warning naming the bad key")
+		Expect(audited).To(BeTrue(), "expected a Normal audit event with by/reason")
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {
