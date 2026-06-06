@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -47,6 +48,12 @@ var _ = Describe("SleepSchedule controller", func() {
 		obj := &nyxv1alpha1.SleepSchedule{}
 		if err := k8sClient.Get(ctx, nn, obj); err == nil {
 			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+		}
+		// envtest has no GC controller, so clean the owned Wake ConfigMap explicitly.
+		cm := &corev1.ConfigMap{}
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		if err := k8sClient.Get(ctx, cmNN, cm); err == nil {
+			Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
 		}
 	})
 
@@ -115,6 +122,53 @@ var _ = Describe("SleepSchedule controller", func() {
 		after2 := &nyxv1alpha1.SleepSchedule{}
 		Expect(k8sClient.Get(ctx, nn, after2)).To(Succeed())
 		Expect(after2.ResourceVersion).To(Equal(rv1), "second reconcile should not write status")
+	})
+
+	It("ensures the Wake ConfigMap with an owner reference (AC1)", func() {
+		obj := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		cm := &corev1.ConfigMap{}
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+
+		created := &nyxv1alpha1.SleepSchedule{}
+		Expect(k8sClient.Get(ctx, nn, created)).To(Succeed())
+		Expect(cm.OwnerReferences).To(HaveLen(1))
+		Expect(cm.OwnerReferences[0].UID).To(Equal(created.UID))
+		Expect(cm.OwnerReferences[0].Kind).To(Equal("SleepSchedule"))
+		Expect(cm.OwnerReferences[0].Controller).NotTo(BeNil())
+		Expect(*cm.OwnerReferences[0].Controller).To(BeTrue())
+	})
+
+	It("recreates the Wake ConfigMap if it is deleted (AC3)", func() {
+		obj := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+
+		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
+		Expect(k8sClient.Get(ctx, cmNN, cm)).NotTo(Succeed())
+
+		// Next reconcile recreates it.
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {
