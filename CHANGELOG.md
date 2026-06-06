@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.1.0...v1.2.0) (2026-06-06)
+
+
+### Features
+
+* **workload:** sleep & restore CronJob and Job via spec.suspend ([#31](https://github.com/cedricfarinazzo/k8s-nyx/issues/31)) ([21a4342](https://github.com/cedricfarinazzo/k8s-nyx/commit/21a4342d0f5577f0107317e4d551c2ca0bb0dd62))
+
 # [1.1.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.0.1...v1.1.0) (2026-06-06)
 
 
