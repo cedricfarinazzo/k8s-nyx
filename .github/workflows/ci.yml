@@ -141,3 +141,5 @@ jobs:
           kubectl -n nyx-system rollout status deploy/nyx-k8s-nyx-chart --timeout=2m
           kubectl -n nyx-system wait --for=condition=Available deploy/nyx-k8s-nyx-chart --timeout=2m
           kubectl get crd sleepschedules.nyx.dev
+      - name: helm test
+        run: helm test nyx --namespace nyx-system --timeout 2m
