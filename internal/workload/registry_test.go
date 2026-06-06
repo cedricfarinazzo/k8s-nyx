@@ -10,7 +10,7 @@ import "testing"
 
 func TestRegistry_DefaultKinds(t *testing.T) {
 	reg := Default()
-	want := []string{KindDeployment, KindStatefulSet, KindDaemonSet, KindCronJob, KindJob}
+	want := []string{KindDeployment, KindStatefulSet, KindDaemonSet, KindCronJob, KindJob, KindHPA}
 	got := reg.Kinds()
 	if len(got) != len(want) {
 		t.Fatalf("Kinds() = %v, want %v", got, want)
@@ -27,8 +27,8 @@ func TestRegistry_GetAndHas(t *testing.T) {
 	if h, ok := reg.Get(KindDeployment); !ok || h.Kind() != KindDeployment {
 		t.Fatalf("Get(Deployment) = (%v, %v)", h, ok)
 	}
-	if !reg.Has(KindStatefulSet) || !reg.Has(KindDaemonSet) || !reg.Has(KindCronJob) || !reg.Has(KindJob) {
-		t.Fatal("Has(StatefulSet/DaemonSet/CronJob/Job) = false, want true")
+	if !reg.Has(KindStatefulSet) || !reg.Has(KindDaemonSet) || !reg.Has(KindCronJob) || !reg.Has(KindJob) || !reg.Has(KindHPA) {
+		t.Fatal("Has(StatefulSet/DaemonSet/CronJob/Job/HPA) = false, want true")
 	}
 	if _, ok := reg.Get("ReplicaSet"); ok {
 		t.Fatal("Get(ReplicaSet) ok = true, want false (no handler)")

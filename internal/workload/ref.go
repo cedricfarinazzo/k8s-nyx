@@ -21,6 +21,7 @@ const (
 	KindDaemonSet   = "DaemonSet"
 	KindCronJob     = "CronJob"
 	KindJob         = "Job"
+	KindHPA         = "HorizontalPodAutoscaler"
 )
 
 // Ref identifies a single selected workload.
