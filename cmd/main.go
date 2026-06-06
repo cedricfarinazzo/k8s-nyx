@@ -65,9 +65,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	operatorNamespace := os.Getenv("POD_NAMESPACE")
+	if operatorNamespace == "" {
+		operatorNamespace = "nyx-system"
+	}
 	if err = (&controller.SleepScheduleReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		OperatorNamespace: operatorNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SleepSchedule")
 		os.Exit(1)
