@@ -5,8 +5,15 @@ name: Release
 # changelog, and hands that exact version to the image and chart publish jobs in
 # the SAME run. (A tag created here with GITHUB_TOKEN would not trigger a
 # separate tag-driven workflow, so the publish jobs run as dependents instead.)
+#
+# Gated on CI: this runs only after the CI workflow completes on master, and the
+# release job runs only when that CI run succeeded — so build/test/lint validate
+# the commit before anything is released or published.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches:
       - master
 
@@ -25,6 +32,8 @@ jobs:
   release:
     name: semantic-release
     runs-on: ubuntu-latest
+    # Only release when the CI run that triggered this succeeded.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       version: ${{ steps.semantic.outputs.version }}
       published: ${{ steps.semantic.outputs.published }}
@@ -32,6 +41,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Check out the exact commit CI validated.
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Node.js
