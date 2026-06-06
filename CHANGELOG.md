@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.3.0...v1.4.0) (2026-06-06)
+
+
+### Features
+
+* **workload:** refuse to sleep StatefulSet with whenScaled=Delete unless opted in ([#35](https://github.com/cedricfarinazzo/k8s-nyx/issues/35)) ([b5e785e](https://github.com/cedricfarinazzo/k8s-nyx/commit/b5e785e2db8d8dfc1d3ddc0f93507dec6184588a))
+
 # [1.3.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.2.0...v1.3.0) (2026-06-06)
 
 
