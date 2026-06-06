@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -33,6 +34,8 @@ type SleepScheduleReconciler struct {
 	Scheme *runtime.Scheme
 	// OperatorNamespace is where the Checkpoint Secrets live (e.g. nyx-system).
 	OperatorNamespace string
+	// Recorder emits Events on affected workloads; may be nil in tests.
+	Recorder record.EventRecorder
 	// Now returns the current time; overridable in tests. Defaults to time.Now.
 	Now func() time.Time
 }
@@ -72,24 +75,32 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		log.Error(err, "resolve targets", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
-	sl := &sleeper.Sleeper{Client: r.Client, Store: &checkpoint.Store{Client: r.Client, Namespace: r.OperatorNamespace}}
+	sl := &sleeper.Sleeper{
+		Client:   r.Client,
+		Store:    &checkpoint.Store{Client: r.Client, Namespace: r.OperatorNamespace},
+		Recorder: r.Recorder,
+	}
 	if err := sl.Apply(ctx, &ss, !res.Awake, targets); err != nil {
 		log.Error(err, "apply sleep/wake", "sleepschedule", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
-	ss.Status.Phase = res.Phase
-	if res.NextTransition.IsZero() {
-		ss.Status.NextTransition = nil
-	} else {
+	// Update status only when it actually changed — repeated reconciles with no
+	// time change must not write (AC4 idempotency).
+	var nextStatus *metav1.Time
+	if !res.NextTransition.IsZero() {
 		next := metav1.NewTime(res.NextTransition)
-		ss.Status.NextTransition = &next
+		nextStatus = &next
 	}
-	if err := r.Status().Update(ctx, &ss); err != nil {
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{Requeue: true}, nil
+	if statusChanged(ss.Status, res.Phase, nextStatus) {
+		ss.Status.Phase = res.Phase
+		ss.Status.NextTransition = nextStatus
+		if err := r.Status().Update(ctx, &ss); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 
 	var requeueAfter time.Duration
@@ -101,6 +112,22 @@ func (r *SleepScheduleReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	log.V(1).Info("evaluated schedule", "phase", res.Phase, "requeueAfter", requeueAfter)
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// statusChanged reports whether the computed phase / nextTransition differ from
+// what is already on the object, so the reconciler can skip a no-op status write.
+func statusChanged(cur nyxv1alpha1.SleepScheduleStatus, phase nyxv1alpha1.SleepSchedulePhase, next *metav1.Time) bool {
+	if cur.Phase != phase {
+		return true
+	}
+	switch {
+	case cur.NextTransition == nil && next == nil:
+		return false
+	case cur.NextTransition == nil || next == nil:
+		return true
+	default:
+		return !cur.NextTransition.Equal(next)
+	}
 }
 
 // SetupWithManager registers the controller with the manager.
