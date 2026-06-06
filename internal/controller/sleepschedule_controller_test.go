@@ -74,6 +74,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		_ = k8sClient.Delete(ctx, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "agent"}})
 		_ = k8sClient.Delete(ctx, &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "report"}})
 		_ = k8sClient.Delete(ctx, &autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web-hpa"}})
+		_ = k8sClient.Delete(ctx, &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "db-pvc"}})
 		_ = k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: resourceName + "-checkpoint"}})
 	})
 
@@ -554,6 +555,63 @@ var _ = Describe("SleepSchedule controller", func() {
 		h = get()
 		Expect(*h.Spec.MinReplicas).To(Equal(int32(2)))
 		Expect(h.Spec.MaxReplicas).To(Equal(int32(10)))
+	})
+
+	It("refuses to sleep a whenScaled=Delete StatefulSet unless opted in (VC-140)", func() {
+		sched := &nyxv1alpha1.SleepSchedule{
+			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
+			Spec:       validSpec(), // default kinds include StatefulSet
+		}
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+
+		reps := int32(3)
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "db-pvc"},
+			Spec: appsv1.StatefulSetSpec{
+				ServiceName: "db",
+				Replicas:    &reps,
+				Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "db"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
+				},
+				PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
+					WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
+					WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, sts)).To(Succeed())
+
+		stsReplicas := func() int32 {
+			s := &appsv1.StatefulSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "db-pvc"}, s)).To(Succeed())
+			return *s.Spec.Replicas
+		}
+
+		// Saturday → asleep, but the Delete policy with no opt-in blocks the sleep.
+		asleep := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		rec := record.NewFakeRecorder(20)
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), OperatorNamespace: namespace, Recorder: rec, Now: func() time.Time { return asleep }}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stsReplicas()).To(Equal(int32(3)), "must not be slept without opt-in")
+		var warned bool
+		Eventually(func() int { return len(rec.Events) }, "2s", "50ms").Should(BeNumerically(">=", 1))
+		for len(rec.Events) > 0 {
+			if e := <-rec.Events; containsAll(e, "Warning", "PVCDeletionRisk") {
+				warned = true
+			}
+		}
+		Expect(warned).To(BeTrue(), "expected a PVCDeletionRisk Warning")
+
+		// Opt in via the annotation → now it sleeps.
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "db-pvc"}, sts)).To(Succeed())
+		sts.Annotations = map[string]string{"nyx.dev/allow-pvc-deletion": "true"}
+		Expect(k8sClient.Update(ctx, sts)).To(Succeed())
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stsReplicas()).To(Equal(int32(0)), "opted in → slept")
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {

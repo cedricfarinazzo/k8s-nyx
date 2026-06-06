@@ -106,6 +106,7 @@ restored verbatim on wake.
 |------|-----------------|------------------|
 | `Deployment` | scale to `sleepReplicas` | `/spec/replicas` |
 | `StatefulSet` | scale to `sleepReplicas` (PVCs retained) | `/spec/replicas` |
+| ↳ | **Guard:** a StatefulSet with `persistentVolumeClaimRetentionPolicy.whenScaled: Delete` is **refused** (scaling to 0 would delete its PVCs) with a `PVCDeletionRisk` Warning, unless annotated `nyx.dev/allow-pvc-deletion: "true"` (on the StatefulSet or the SleepSchedule). | — |
 | `DaemonSet` | inject an unsatisfiable sentinel `nodeSelector` (`nyx.dev/asleep`) so 0 pods schedule | `/spec/template/spec/nodeSelector` |
 | `CronJob` | set `spec.suspend: true` (stops scheduling new jobs) | `/spec/suspend` |
 | `Job` | set `spec.suspend: true`; a Job with **active pods is skipped** (suspending would delete them) with a `SkippedActiveJob` Warning | `/spec/suspend` |
