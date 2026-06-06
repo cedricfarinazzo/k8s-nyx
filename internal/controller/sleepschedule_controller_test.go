@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,6 +67,9 @@ var _ = Describe("SleepSchedule controller", func() {
 		if err := k8sClient.Get(ctx, cmNN, cm); err == nil {
 			Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
 		}
+		// Clean any workload + checkpoint Secret a test created, so specs stay isolated.
+		_ = k8sClient.Delete(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web"}})
+		_ = k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: resourceName + "-checkpoint"}})
 	})
 
 	It("creates and reads a SleepSchedule (CRD is installed)", func() {
@@ -200,14 +204,14 @@ var _ = Describe("SleepSchedule controller", func() {
 		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
 		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
 		cm.Data = map[string]string{
-			"alice-1": "2026-06-05T15:00:00Z;by=alice;reason=debug",
+			"alice-1": "2099-01-01T00:00:00Z;by=alice;reason=debug", // future → active, audited
 			"bad-1":   "not-a-time",
 		}
 		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
-		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		var events []string
 		Eventually(func() int { return len(rec.Events) }, "2s", "50ms").Should(BeNumerically(">=", 2))
@@ -262,14 +266,14 @@ var _ = Describe("SleepSchedule controller", func() {
 		setWakeData(map[string]string{"bob": "+1h;by=bob"})
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
-		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(time.Hour).UTC().Format(time.RFC3339)
 		Expect(getWakeData()["bob"]).To(Equal(want + ";by=bob"))
 
 		// A second pass at a LATER time must not re-extend the now-absolute value.
 		r.Now = func() time.Time { return now.Add(30 * time.Minute) }
-		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 		Expect(getWakeData()["bob"]).To(Equal(want+";by=bob"), "absolute value must not re-extend")
 	})
 
@@ -283,7 +287,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		setWakeData(map[string]string{"alice": "by=alice;reason=lunch"})
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
-		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(time.Hour).UTC().Format(time.RFC3339) // default 1h
 		Expect(getWakeData()["alice"]).To(Equal(want + ";by=alice;reason=lunch"))
@@ -301,7 +305,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		setWakeData(map[string]string{"big": over})
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
-		Expect(r.processWakeEntries(ctx, &ss)).To(Succeed())
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(8 * time.Hour).UTC().Format(time.RFC3339) // clamped to max
 		Expect(getWakeData()["big"]).To(Equal(want))
@@ -313,6 +317,70 @@ var _ = Describe("SleepSchedule controller", func() {
 			}
 		}
 		Expect(clamped).To(BeTrue(), "expected a WakeClamped Event")
+	})
+
+	It("forces awake on an active wake, then re-sleeps when it expires (AC1–AC4)", func() {
+		// Saturday → outside the Mon/Tue awake window, so the schedule is Asleep.
+		now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		sched := withTempWake() // sleepReplicas 0, target namespaces [default]
+		Expect(k8sClient.Create(ctx, sched)).To(Succeed())
+
+		reps := int32(3)
+		web := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "web"},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &reps,
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "busybox"}}},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, web)).To(Succeed())
+
+		webReplicas := func() int32 {
+			d := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "web"}, d)).To(Succeed())
+			return *d.Spec.Replicas
+		}
+		phase := func() nyxv1alpha1.SleepSchedulePhase {
+			s := &nyxv1alpha1.SleepSchedule{}
+			Expect(k8sClient.Get(ctx, nn, s)).To(Succeed())
+			return s.Status.Phase
+		}
+		activeWakes := func() int32 {
+			s := &nyxv1alpha1.SleepSchedule{}
+			Expect(k8sClient.Get(ctx, nn, s)).To(Succeed())
+			return s.Status.ActiveWakes
+		}
+
+		r := &SleepScheduleReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), OperatorNamespace: namespace, Now: func() time.Time { return now }}
+
+		// 1) Asleep: scaled to sleepReplicas, phase Asleep, no active wakes.
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(webReplicas()).To(Equal(int32(0)))
+		Expect(phase()).To(Equal(nyxv1alpha1.PhaseAsleep))
+		Expect(activeWakes()).To(Equal(int32(0)))
+
+		// 2) Active wake → forced awake, restored to 3, phase WokenByOverride, count 1.
+		setWakeData(map[string]string{"w1": now.Add(time.Hour).UTC().Format(time.RFC3339) + ";by=alice"})
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(webReplicas()).To(Equal(int32(3)))
+		Expect(phase()).To(Equal(nyxv1alpha1.PhaseWokenByOverride))
+		Expect(activeWakes()).To(Equal(int32(1)))
+
+		// 3) After expiry → entry self-cleaned, re-slept, phase Asleep, count 0.
+		r.Now = func() time.Time { return now.Add(2 * time.Hour) }
+		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(webReplicas()).To(Equal(int32(0)))
+		Expect(phase()).To(Equal(nyxv1alpha1.PhaseAsleep))
+		Expect(activeWakes()).To(Equal(int32(0)))
+		_, present := getWakeData()["w1"]
+		Expect(present).To(BeFalse(), "expired entry should be removed from the ConfigMap")
 	})
 
 	It("reconciles a missing resource without error (no-op)", func() {
