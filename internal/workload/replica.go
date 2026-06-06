@@ -17,6 +17,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 )
 
@@ -57,7 +58,7 @@ func sleepReplica(ctx context.Context, c client.Client, rec record.EventRecorder
 			return err
 		}
 	}
-	return patchReplicas(ctx, c, rec, w, schedule.Spec.SleepReplicas, schedule.Spec.DryRun, "Slept")
+	return patchReplicas(ctx, c, rec, schedule, ref, w, schedule.Spec.SleepReplicas, schedule.Spec.DryRun, "Slept")
 }
 
 // restoreReplica restores the exact checkpointed replica count and clears the
@@ -79,7 +80,7 @@ func restoreReplica(ctx context.Context, c client.Client, rec record.EventRecord
 	if !found {
 		return nil
 	}
-	if err := patchReplicas(ctx, c, rec, w, orig, schedule.Spec.DryRun, "Woke"); err != nil {
+	if err := patchReplicas(ctx, c, rec, schedule, ref, w, orig, schedule.Spec.DryRun, "Woke"); err != nil {
 		return err
 	}
 	if schedule.Spec.DryRun {
@@ -90,7 +91,7 @@ func restoreReplica(ctx context.Context, c client.Client, rec record.EventRecord
 
 // patchReplicas sets spec.replicas to want via a merge patch (only /spec/replicas
 // is in the patch, honouring the ArgoCD contract). No-op when already at want.
-func patchReplicas(ctx context.Context, c client.Client, rec record.EventRecorder, w *replicaObj, want int32, dryRun bool, reason string) error {
+func patchReplicas(ctx context.Context, c client.Client, rec record.EventRecorder, schedule *nyxv1alpha1.SleepSchedule, ref Ref, w *replicaObj, want int32, dryRun bool, reason string) error {
 	if w.replicas == want {
 		return nil
 	}
@@ -104,7 +105,9 @@ func patchReplicas(ctx context.Context, c client.Client, rec record.EventRecorde
 	if err := c.Patch(ctx, w.obj, patch); err != nil {
 		return err
 	}
-	emit(rec, w.obj, reason, fmt.Sprintf("scaled to %d replicas", want))
+	msg := fmt.Sprintf("scaled to %d replicas", want)
+	emit(rec, w.obj, reason, msg)
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, reason, msg)
 	return nil
 }
 

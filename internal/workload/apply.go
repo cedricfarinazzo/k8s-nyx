@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 )
 
@@ -26,6 +27,9 @@ type Sleeper struct {
 	Recorder record.EventRecorder
 	// Registry of handlers; defaults to Default() when nil.
 	Registry *Registry
+	// Who/Why attribute this pass in the audit trail (who acted and why).
+	Who string
+	Why string
 }
 
 func (s *Sleeper) registry() *Registry {
@@ -41,6 +45,7 @@ func (s *Sleeper) registry() *Registry {
 // programming error (Resolve never returns one) and surfaces as an error.
 func (s *Sleeper) Apply(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, asleep bool, refs []Ref) error {
 	reg := s.registry()
+	ctx = audit.NewContext(ctx, audit.Info{Who: s.Who, Why: s.Why})
 	for _, ref := range refs {
 		h, ok := reg.Get(ref.Kind)
 		if !ok {

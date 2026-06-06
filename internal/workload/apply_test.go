@@ -170,6 +170,16 @@ func TestApply_StatefulSet(t *testing.T) {
 	}
 }
 
+// anyContains reports whether any event string contains sub.
+func anyContains(evs []string, sub string) bool {
+	for _, e := range evs {
+		if strings.Contains(e, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 // drain returns all currently-buffered events from a FakeRecorder.
 func drain(rec *record.FakeRecorder) []string {
 	var out []string
@@ -192,10 +202,11 @@ func TestApply_EmitsEvents(t *testing.T) {
 	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 	ctx := context.Background()
 
+	// A real action emits an Event on the workload AND an audit Event on the
+	// SleepSchedule, so expect the action to appear (count may be >1).
 	_ = s.Apply(ctx, sch, true, []Ref{ref}) // sleep
-	ev := drain(rec)
-	if len(ev) != 1 || !strings.Contains(ev[0], "Slept") {
-		t.Fatalf("sleep events = %v, want one Slept", ev)
+	if ev := drain(rec); !anyContains(ev, "Slept") {
+		t.Fatalf("sleep events = %v, want a Slept", ev)
 	}
 
 	_ = s.Apply(ctx, sch, true, []Ref{ref}) // already asleep → no-op
@@ -204,9 +215,8 @@ func TestApply_EmitsEvents(t *testing.T) {
 	}
 
 	_ = s.Apply(ctx, sch, false, []Ref{ref}) // wake
-	ev = drain(rec)
-	if len(ev) != 1 || !strings.Contains(ev[0], "Woke") {
-		t.Fatalf("wake events = %v, want one Woke", ev)
+	if ev := drain(rec); !anyContains(ev, "Woke") {
+		t.Fatalf("wake events = %v, want a Woke", ev)
 	}
 }
 

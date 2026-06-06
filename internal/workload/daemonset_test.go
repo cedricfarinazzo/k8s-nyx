@@ -140,8 +140,8 @@ func TestDaemonSet_SleepIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Apply(ctx, sch, true, []Ref{dsRef("agent")})
-	if ev := drain(rec); len(ev) != 1 || !strings.Contains(ev[0], "Slept") {
-		t.Fatalf("first sleep events = %v, want one Slept", ev)
+	if ev := drain(rec); !anyContains(ev, "Slept") {
+		t.Fatalf("first sleep events = %v, want a Slept", ev)
 	}
 	_ = s.Apply(ctx, sch, true, []Ref{dsRef("agent")})
 	if ev := drain(rec); len(ev) != 0 {

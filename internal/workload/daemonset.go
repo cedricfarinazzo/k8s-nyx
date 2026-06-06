@@ -18,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
+	"github.com/cedricfarinazzo/k8s-nyx/internal/audit"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
 )
 
@@ -88,6 +89,7 @@ func (daemonSetHandler) Sleep(ctx context.Context, c client.Client, rec record.E
 		return err
 	}
 	emit(rec, ds, "Slept", "injected sentinel nodeSelector (0 pods scheduled)")
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Slept", "injected sentinel nodeSelector")
 	return nil
 }
 
@@ -121,6 +123,7 @@ func (daemonSetHandler) Restore(ctx context.Context, c client.Client, rec record
 		return err
 	}
 	emit(rec, ds, "Woke", "restored original nodeSelector")
+	audit.Record(ctx, rec, schedule, ref.Kind, ref.Namespace, ref.Name, "Woke", "restored original nodeSelector")
 	return store.Delete(ctx, schedule, key)
 }
 
