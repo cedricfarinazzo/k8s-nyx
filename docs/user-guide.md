@@ -47,7 +47,7 @@ spec:
 | `target.mode` | enum | `namespaces` or `labels`. |
 | `target.namespaces` | list | Required when `mode: namespaces`. |
 | `target.selector` | LabelSelector | Required when `mode: labels`; matches workloads cluster-wide. |
-| `kinds` | list | Restrict to `Deployment` and/or `StatefulSet`. Empty = both. |
+| `kinds` | list | Restrict to handled kinds (`Deployment`, `StatefulSet`). Empty = all handled kinds. A listed kind with no handler is ignored with a Warning Event (see below). |
 | `excludeRefs[]` | list | `{kind, name, namespace?}` workloads to leave untouched. A `namespace`-less ref matches that kind+name in **any** namespace. |
 | `sleepReplicas` | int (≥0) | Replica count applied while asleep. Default `0`. |
 | `temporaryWake.defaultDuration` | duration | Applied to a wake entry with no explicit expiry. |
@@ -95,6 +95,16 @@ target:
     matchLabels:
       nyx.dev/sleep: "true"
 ```
+
+### Workload kinds
+
+The operator acts only on kinds it has a handler for — currently `Deployment`
+and `StatefulSet`. `spec.kinds` restricts which of those a schedule touches
+(empty = all handled kinds). A kind listed in `spec.kinds` that has **no handler**
+(e.g. `DaemonSet` today) is ignored: the operator mutates nothing of that kind
+and emits an `UnhandledKind` Warning Event on the SleepSchedule, then continues
+with the kinds it does handle. Support for more kinds is added by registering new
+handlers.
 
 **Exclusions** are always dropped, regardless of mode:
 

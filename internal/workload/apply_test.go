@@ -4,7 +4,7 @@ Copyright 2026.
 Licensed under the MIT License.
 */
 
-package sleeper
+package workload
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 	"github.com/cedricfarinazzo/k8s-nyx/internal/checkpoint"
-	"github.com/cedricfarinazzo/k8s-nyx/internal/target"
 )
 
 const opNamespace = "nyx-system"
@@ -71,13 +70,13 @@ func deployReplicas(t *testing.T, c client.Client, name string) int32 {
 	return *d.Spec.Replicas
 }
 
-// AC1: asleep scales to sleepReplicas and records the original in the checkpoint.
+// asleep scales to sleepReplicas and records the original in the checkpoint.
 func TestApply_SleepRecordsAndScales(t *testing.T) {
 	s, c := newSleeper(newDeployment("team-a", "api", 3))
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 
-	if err := s.Apply(context.Background(), sch, true, []target.WorkloadRef{ref}); err != nil {
+	if err := s.Apply(context.Background(), sch, true, []Ref{ref}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deployReplicas(t, c, "api"); got != 0 {
@@ -93,14 +92,14 @@ func TestApply_SleepRecordsAndScales(t *testing.T) {
 	}
 }
 
-// AC2: awake restores the exact original and clears the checkpoint entry.
+// awake restores the exact original and clears the checkpoint entry.
 func TestApply_WakeRestoresAndClears(t *testing.T) {
 	s, c := newSleeper(newDeployment("team-a", "api", 3))
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 
-	_ = s.Apply(context.Background(), sch, true, []target.WorkloadRef{ref})
-	if err := s.Apply(context.Background(), sch, false, []target.WorkloadRef{ref}); err != nil {
+	_ = s.Apply(context.Background(), sch, true, []Ref{ref})
+	if err := s.Apply(context.Background(), sch, false, []Ref{ref}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deployReplicas(t, c, "api"); got != 3 {
@@ -112,17 +111,17 @@ func TestApply_WakeRestoresAndClears(t *testing.T) {
 	}
 }
 
-// AC3: a fresh Sleeper (no in-memory state) restores from the persisted checkpoint.
+// a fresh Sleeper (no in-memory state) restores from the persisted checkpoint.
 func TestApply_RestoreSurvivesRestart(t *testing.T) {
 	s1, c := newSleeper(newDeployment("team-a", "api", 5))
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 
-	_ = s1.Apply(context.Background(), sch, true, []target.WorkloadRef{ref})
+	_ = s1.Apply(context.Background(), sch, true, []Ref{ref})
 
 	// Simulate operator restart: brand-new Sleeper + Store over the same cluster.
 	s2 := &Sleeper{Client: c, Store: &checkpoint.Store{Client: c, Namespace: opNamespace}}
-	if err := s2.Apply(context.Background(), sch, false, []target.WorkloadRef{ref}); err != nil {
+	if err := s2.Apply(context.Background(), sch, false, []Ref{ref}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deployReplicas(t, c, "api"); got != 5 {
@@ -130,22 +129,22 @@ func TestApply_RestoreSurvivesRestart(t *testing.T) {
 	}
 }
 
-// AC4: a second sleep pass must not re-checkpoint sleepReplicas; the real prior wins.
+// a second sleep pass must not re-checkpoint sleepReplicas; the real prior wins.
 func TestApply_NoReCheckpointWhileAsleep(t *testing.T) {
 	s, c := newSleeper(newDeployment("team-a", "api", 3))
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 	ctx := context.Background()
 
-	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // 3 -> 0, checkpoint 3
-	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // still asleep; must NOT record 0
+	_ = s.Apply(ctx, sch, true, []Ref{ref}) // 3 -> 0, checkpoint 3
+	_ = s.Apply(ctx, sch, true, []Ref{ref}) // still asleep; must NOT record 0
 
 	key := checkpoint.Key("Deployment", "team-a", "api", "api-uid")
 	orig, found, _ := s.Store.Get(ctx, sch, key)
 	if !found || orig != 3 {
 		t.Fatalf("checkpoint = (%d, %v), want (3, true)", orig, found)
 	}
-	_ = s.Apply(ctx, sch, false, []target.WorkloadRef{ref})
+	_ = s.Apply(ctx, sch, false, []Ref{ref})
 	if got := deployReplicas(t, c, "api"); got != 3 {
 		t.Fatalf("restored replicas = %d, want 3 (not sleepReplicas)", got)
 	}
@@ -155,16 +154,16 @@ func TestApply_NoReCheckpointWhileAsleep(t *testing.T) {
 func TestApply_StatefulSet(t *testing.T) {
 	s, c := newSleeper(newStatefulSet("team-a", "db", 2))
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindStatefulSet, Namespace: "team-a", Name: "db"}
+	ref := Ref{Kind: KindStatefulSet, Namespace: "team-a", Name: "db"}
 	ctx := context.Background()
 
-	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref})
+	_ = s.Apply(ctx, sch, true, []Ref{ref})
 	var set appsv1.StatefulSet
 	_ = c.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: "db"}, &set)
 	if *set.Spec.Replicas != 0 {
 		t.Fatalf("sts replicas = %d, want 0", *set.Spec.Replicas)
 	}
-	_ = s.Apply(ctx, sch, false, []target.WorkloadRef{ref})
+	_ = s.Apply(ctx, sch, false, []Ref{ref})
 	_ = c.Get(ctx, types.NamespacedName{Namespace: "team-a", Name: "db"}, &set)
 	if *set.Spec.Replicas != 2 {
 		t.Fatalf("restored sts replicas = %d, want 2", *set.Spec.Replicas)
@@ -184,27 +183,27 @@ func drain(rec *record.FakeRecorder) []string {
 	}
 }
 
-// AC3: sleep and wake emit Events on the affected workload; a no-op emits none (AC4).
+// sleep and wake emit Events on the affected workload; a no-op emits none.
 func TestApply_EmitsEvents(t *testing.T) {
 	s, _ := newSleeper(newDeployment("team-a", "api", 3))
 	rec := record.NewFakeRecorder(10)
 	s.Recorder = rec
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 	ctx := context.Background()
 
-	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // sleep
+	_ = s.Apply(ctx, sch, true, []Ref{ref}) // sleep
 	ev := drain(rec)
 	if len(ev) != 1 || !strings.Contains(ev[0], "Slept") {
 		t.Fatalf("sleep events = %v, want one Slept", ev)
 	}
 
-	_ = s.Apply(ctx, sch, true, []target.WorkloadRef{ref}) // already asleep → no-op
+	_ = s.Apply(ctx, sch, true, []Ref{ref}) // already asleep → no-op
 	if ev := drain(rec); len(ev) != 0 {
 		t.Fatalf("no-op sleep should emit no events, got %v", ev)
 	}
 
-	_ = s.Apply(ctx, sch, false, []target.WorkloadRef{ref}) // wake
+	_ = s.Apply(ctx, sch, false, []Ref{ref}) // wake
 	ev = drain(rec)
 	if len(ev) != 1 || !strings.Contains(ev[0], "Woke") {
 		t.Fatalf("wake events = %v, want one Woke", ev)
@@ -216,9 +215,9 @@ func TestApply_NilReplicasDefaultsToOne(t *testing.T) {
 	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "api", UID: "api-uid"}}
 	s, _ := newSleeper(d)
 	sch := schedule()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 
-	if err := s.Apply(context.Background(), sch, true, []target.WorkloadRef{ref}); err != nil {
+	if err := s.Apply(context.Background(), sch, true, []Ref{ref}); err != nil {
 		t.Fatal(err)
 	}
 	key := checkpoint.Key("Deployment", "team-a", "api", "api-uid")
@@ -228,12 +227,12 @@ func TestApply_NilReplicasDefaultsToOne(t *testing.T) {
 	}
 }
 
-// An unsupported kind is an error from the sleeper (the resolver never returns one,
-// but Apply guards against it).
+// A ref whose kind has no handler is an error from Apply (Resolve never returns
+// one, but Apply guards against it).
 func TestApply_UnsupportedKind(t *testing.T) {
 	s, _ := newSleeper()
-	ref := target.WorkloadRef{Kind: "DaemonSet", Namespace: "team-a", Name: "x"}
-	if err := s.Apply(context.Background(), schedule(), true, []target.WorkloadRef{ref}); err == nil {
+	ref := Ref{Kind: "DaemonSet", Namespace: "team-a", Name: "x"}
+	if err := s.Apply(context.Background(), schedule(), true, []Ref{ref}); err == nil {
 		t.Fatal("expected error for unsupported kind")
 	}
 }
@@ -241,8 +240,8 @@ func TestApply_UnsupportedKind(t *testing.T) {
 // A target that no longer exists is skipped without error.
 func TestApply_MissingWorkloadSkipped(t *testing.T) {
 	s, _ := newSleeper()
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "gone"}
-	if err := s.Apply(context.Background(), schedule(), true, []target.WorkloadRef{ref}); err != nil {
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "gone"}
+	if err := s.Apply(context.Background(), schedule(), true, []Ref{ref}); err != nil {
 		t.Fatalf("missing workload should be skipped, got %v", err)
 	}
 }
@@ -254,9 +253,9 @@ func TestApply_DryRun(t *testing.T) {
 	s.Recorder = rec
 	sch := schedule()
 	sch.Spec.DryRun = true
-	ref := target.WorkloadRef{Kind: target.KindDeployment, Namespace: "team-a", Name: "api"}
+	ref := Ref{Kind: KindDeployment, Namespace: "team-a", Name: "api"}
 
-	if err := s.Apply(context.Background(), sch, true, []target.WorkloadRef{ref}); err != nil {
+	if err := s.Apply(context.Background(), sch, true, []Ref{ref}); err != nil {
 		t.Fatal(err)
 	}
 	if got := deployReplicas(t, c, "api"); got != 3 {
@@ -266,7 +265,6 @@ func TestApply_DryRun(t *testing.T) {
 	if _, found, _ := s.Store.Get(context.Background(), sch, key); found {
 		t.Fatalf("dry-run should not write a checkpoint")
 	}
-	// AC1: dry-run still emits an Event describing the intended action.
 	ev := drain(rec)
 	if len(ev) != 1 || !strings.Contains(ev[0], "dry-run") {
 		t.Fatalf("dry-run events = %v, want one dry-run event", ev)
