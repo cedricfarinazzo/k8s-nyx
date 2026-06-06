@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.4.0...v1.5.0) (2026-06-06)
+
+
+### Features
+
+* **audit:** structured JSON logs and SleepSchedule Events for lifecycle actions ([#36](https://github.com/cedricfarinazzo/k8s-nyx/issues/36)) ([8044674](https://github.com/cedricfarinazzo/k8s-nyx/commit/8044674e13f2082c13c2817a0ac4cfdc24586e3f))
+
 # [1.4.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.3.0...v1.4.0) (2026-06-06)
 
 
