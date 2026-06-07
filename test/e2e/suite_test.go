@@ -6,7 +6,7 @@ Copyright 2026.
 Licensed under the MIT License.
 */
 
-// Package e2e holds the kind-based end-to-end suite (VC-161). It runs against a
+// Package e2e holds the kind-based end-to-end suite. It runs against a
 // real cluster (the operator already installed via Helm) and exercises
 // sleep/wake/restore across every supported workload kind. It is build-tagged
 // `e2e` so `make test` (unit + envtest) never picks it up; run it with

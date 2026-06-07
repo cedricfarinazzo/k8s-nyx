@@ -1,5 +1,11 @@
 # k8s-nyx
 
+[![CI](https://github.com/cedricfarinazzo/k8s-nyx/actions/workflows/ci.yml/badge.svg)](https://github.com/cedricfarinazzo/k8s-nyx/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cedricfarinazzo/k8s-nyx?sort=semver)](https://github.com/cedricfarinazzo/k8s-nyx/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cedricfarinazzo/k8s-nyx)](https://goreportcard.com/report/github.com/cedricfarinazzo/k8s-nyx)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/cedricfarinazzo/k8s-nyx)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Put Kubernetes workloads to sleep on a schedule, wake them on demand, and
 restore their exact prior state — automatically.**
 
@@ -132,6 +138,14 @@ Then create a `SleepSchedule` (see [docs/quickstart.md](docs/quickstart.md)).
 `nyx.dev/v1alpha1` — early but functional. Releases are automated with
 [semantic-release](https://github.com/semantic-release/semantic-release) from
 Conventional Commits; see the [CHANGELOG](CHANGELOG.md).
+
+## Contributing & community
+
+Contributions welcome — start with the [Contributing guide](docs/contributing.md)
+and the [policy](CONTRIBUTING.md) (Conventional Commits, build/test/lint, the
+e2e suite). Participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md). Found a vulnerability? Please report it
+privately — see the [Security Policy](SECURITY.md).
 
 ## License
 

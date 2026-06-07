@@ -17,7 +17,7 @@ import (
 )
 
 // These tests start two managers with leader election against the envtest API
-// server and assert single-leader + failover behaviour (VC-158).
+// server and assert single-leader + failover behaviour.
 var _ = Describe("Leader election", func() {
 	newManager := func() manager.Manager {
 		lease, renew, retry := 4*time.Second, 3*time.Second, 1*time.Second

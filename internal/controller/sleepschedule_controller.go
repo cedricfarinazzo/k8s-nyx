@@ -46,7 +46,7 @@ type SleepScheduleReconciler struct {
 	Now func() time.Time
 }
 
-// Least-privilege RBAC (VC-159): each verb below is one the controller actually
+// Least-privilege RBAC: each verb below is one the controller actually
 // exercises. list+watch are kept wherever a resource is read through the manager's
 // informer cache (a cached Get is served from a list+watch informer), even when the
 // code only calls Get. See docs/operator-guide.md for the per-rule rationale.
