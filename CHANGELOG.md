@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.5.0...v1.6.0) (2026-06-07)
+
+
+### Features
+
+* **metrics:** expose Prometheus metrics for sleep/wake behaviour ([#37](https://github.com/cedricfarinazzo/k8s-nyx/issues/37)) ([1f65c1d](https://github.com/cedricfarinazzo/k8s-nyx/commit/1f65c1d82e831c90d7798e7f45656905965ac07e))
+
 # [1.5.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.4.0...v1.5.0) (2026-06-06)
 
 
