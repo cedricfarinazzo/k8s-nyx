@@ -120,11 +120,10 @@ Every lifecycle action (sleep, wake, restore, wake-override, expiry) is audited
 two ways:
 
 - **Structured JSON logs** — each action logs a line with `action`, `who`
-  (`k8s-nyx` for schedule-driven actions, the wake `by` for an override), `why`
-  (`asleep window` / `awake window` / `active wake override` / `wake entry
-  expired`), `when` (RFC3339), and `objectRef` (`Kind/namespace/name`) for
-  correlation, plus the `sleepSchedule`. Logs are JSON by default (override with
-  the `--zap-*` flags).
+  (`k8s-nyx`), `why` (`asleep window` / `awake window` / `active wake override` /
+  `wake override expired`), `when` (RFC3339), and `objectRef`
+  (`Kind/namespace/name`) for correlation, plus the `sleepSchedule`. Logs are JSON
+  by default (override with the `--zap-*` flags).
 - **Kubernetes Events** — a corresponding Event is recorded on the
   `SleepSchedule` for each action (`kubectl describe sleepschedule <name>`), in
   addition to the per-workload `Slept`/`Woke` Events.

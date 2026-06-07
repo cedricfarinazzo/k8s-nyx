@@ -166,7 +166,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 
 		By("triggering a +2m override after a short delay")
 		time.Sleep(t5OverrideAt)
-		writeWakeOverride(ctx, ns, "override", "e2e", "+2m;by=e2e;reason=e2e-temporary-wake")
+		writeWakeOverride(ctx, ns, "override", "+2m")
 
 		By("forced awake by the override")
 		Eventually(deployReplicas(ctx, ns, dep), wakeSlack, pollInterval).Should(Equal(awakeReplicas))

@@ -221,6 +221,11 @@ func WakeConfigMapName(scheduleName string) string {
 	return scheduleName + "-wake"
 }
 
+// WakeKey is the single ConfigMap data key the operator reads for the wake
+// override. Its value is the expiry (RFC3339, "+duration", or empty for the
+// schedule's temporaryWake.defaultDuration).
+const WakeKey = "wake"
+
 // ensureWakeConfigMap creates the schedule's Wake ConfigMap (the override surface)
 // if it does not already exist, owned by the SleepSchedule so it is garbage-collected
 // with the schedule and re-enqueues the owner on changes. Create-only: an existing
@@ -259,8 +264,8 @@ type wakeState struct {
 	Earliest time.Time
 }
 
-// processWakeEntries reads the Wake ConfigMap, resolves/clamps/stamps entries
-// (VC-130), surfaces malformed ones (VC-129), deletes expired entries (AC3), and
+// processWakeEntries reads the single wake-override value from the Wake ConfigMap,
+// resolves/clamps/stamps it, surfaces a malformed value, deletes it on expiry, and
 // returns the active-wake state. The ConfigMap is written at most once per pass.
 func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *nyxv1alpha1.SleepSchedule, now time.Time) (wakeState, error) {
 	log := logf.FromContext(ctx)
@@ -274,73 +279,67 @@ func (r *SleepScheduleReconciler) processWakeEntries(ctx context.Context, ss *ny
 		return wakeState{}, err
 	}
 
-	valid, errs := wake.ParseData(cm.Data)
-	for key, perr := range errs {
-		log.Info("ignoring malformed wake entry", "key", key, "error", perr.Error())
+	raw, ok := cm.Data[WakeKey]
+	if !ok {
+		return wakeState{}, nil // no override set
+	}
+
+	e, perr := wake.ParseEntry(raw)
+	if perr != nil {
+		log.Info("ignoring malformed wake value", "value", raw, "error", perr.Error())
 		if r.Recorder != nil {
 			r.Recorder.Eventf(ss, corev1.EventTypeWarning, "MalformedWakeEntry",
-				"ignored malformed wake entry %q: %v", key, perr)
+				"ignored malformed wake value %q: %v", raw, perr)
 		}
+		return wakeState{}, nil
 	}
 
 	def, max := temporaryWakeBounds(ss)
-	dirty := false
-	var st wakeState
-	for _, e := range valid {
-		res, rerr := wake.Resolve(e, now, def, max)
-		if rerr != nil {
-			// e.g. no expiry and no defaultDuration configured — treat like malformed.
-			log.Info("cannot resolve wake entry", "key", e.Key, "error", rerr.Error())
-			if r.Recorder != nil {
-				r.Recorder.Eventf(ss, corev1.EventTypeWarning, "UnresolvableWakeEntry",
-					"ignored wake entry %q: %v", e.Key, rerr)
-			}
-			continue
-		}
-		if res.Clamped && r.Recorder != nil {
-			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeClamped",
-				"wake entry %q clamped to maxDuration (expiry %s)", e.Key, res.Expiry.UTC().Format(time.RFC3339))
-		}
-
-		if !res.Expiry.After(now) {
-			// Expired: self-clean (AC3).
-			delete(cm.Data, e.Key)
-			dirty = true
-			if r.Recorder != nil {
-				r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeExpired",
-					"wake entry %q expired and was removed", e.Key)
-			}
-			// Audit log only — the WakeExpired Event above already covers AC2.
-			audit.Record(audit.NewContext(ctx, audit.Info{Why: "wake entry expired"}), nil, ss,
-				"", "", "", "WakeExpired", fmt.Sprintf("wake entry %q expired", e.Key))
-			continue
-		}
-
-		// Active wake.
-		if res.Changed {
-			cm.Data[e.Key] = wake.FormatEntry(res.Expiry, e.By, e.Reason)
-			dirty = true
-		}
-		st.ActiveCount++
-		if st.Earliest.IsZero() || res.Expiry.Before(st.Earliest) {
-			st.Earliest = res.Expiry
-		}
-		log.V(1).Info("active wake", "key", e.Key, "by", e.By, "reason", e.Reason, "expiry", res.Expiry)
+	res, rerr := wake.Resolve(e, now, def, max)
+	if rerr != nil {
+		// e.g. no expiry and no defaultDuration configured — treat like malformed.
+		log.Info("cannot resolve wake value", "value", raw, "error", rerr.Error())
 		if r.Recorder != nil {
-			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
-				"wake entry %q accepted (by=%q reason=%q)", e.Key, e.By, e.Reason)
+			r.Recorder.Eventf(ss, corev1.EventTypeWarning, "UnresolvableWakeEntry",
+				"ignored wake value %q: %v", raw, rerr)
 		}
-		// Audit log only — the WakeEntryAccepted Event above already covers AC2.
-		audit.Record(audit.NewContext(ctx, audit.Info{Who: e.By, Why: e.Reason}), nil, ss,
-			"", "", "", "WakeOverride", fmt.Sprintf("wake entry %q active", e.Key))
+		return wakeState{}, nil
+	}
+	if res.Clamped && r.Recorder != nil {
+		r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeClamped",
+			"wake override clamped to maxDuration (expiry %s)", res.Expiry.UTC().Format(time.RFC3339))
 	}
 
-	if dirty {
+	if !res.Expiry.After(now) {
+		// Expired: self-clean.
+		delete(cm.Data, WakeKey)
+		if err := r.Update(ctx, &cm); err != nil {
+			return wakeState{}, err
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeExpired",
+				"wake override expired and was removed")
+		}
+		audit.Record(audit.NewContext(ctx, audit.Info{Who: audit.DefaultActor, Why: "wake override expired"}), nil, ss,
+			"", "", "", "WakeExpired", "wake override expired")
+		return wakeState{}, nil
+	}
+
+	// Active wake: stamp a resolved (relative/default/clamped) value to absolute once.
+	if res.Changed {
+		cm.Data[WakeKey] = wake.FormatExpiry(res.Expiry)
 		if err := r.Update(ctx, &cm); err != nil {
 			return wakeState{}, err
 		}
 	}
-	return st, nil
+	log.V(1).Info("active wake override", "expiry", res.Expiry)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(ss, corev1.EventTypeNormal, "WakeEntryAccepted",
+			"wake override active until %s", res.Expiry.UTC().Format(time.RFC3339))
+	}
+	audit.Record(audit.NewContext(ctx, audit.Info{Who: audit.DefaultActor, Why: "active wake override"}), nil, ss,
+		"", "", "", "WakeOverride", fmt.Sprintf("wake override active until %s", res.Expiry.UTC().Format(time.RFC3339)))
+	return wakeState{ActiveCount: 1, Earliest: res.Expiry}, nil
 }
 
 // temporaryWakeBounds returns the configured default / max wake durations, or 0s

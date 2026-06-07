@@ -8,7 +8,6 @@ package wake
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -61,18 +60,9 @@ func Resolve(e Entry, now time.Time, def, max time.Duration) (Resolution, error)
 	return res, nil
 }
 
-// FormatEntry renders an absolute wake entry value: "<RFC3339>[;by=…][;reason=…]".
-// It is the canonical written-back form once an entry has been resolved.
-func FormatEntry(expiry time.Time, by, reason string) string {
-	var b strings.Builder
-	b.WriteString(expiry.UTC().Format(time.RFC3339))
-	if by != "" {
-		b.WriteString(";by=")
-		b.WriteString(by)
-	}
-	if reason != "" {
-		b.WriteString(";reason=")
-		b.WriteString(reason)
-	}
-	return b.String()
+// FormatExpiry renders the canonical written-back wake value: an absolute RFC3339
+// timestamp. The operator stamps a resolved (relative/default) entry to this form
+// once so it never re-extends on subsequent reconciles.
+func FormatExpiry(expiry time.Time) string {
+	return expiry.UTC().Format(time.RFC3339)
 }

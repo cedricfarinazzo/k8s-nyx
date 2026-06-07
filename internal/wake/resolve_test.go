@@ -80,17 +80,14 @@ func TestResolve_ClampOverCap(t *testing.T) {
 	}
 }
 
-func TestFormatEntry(t *testing.T) {
+func TestFormatExpiry(t *testing.T) {
 	exp := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	if got := FormatEntry(exp, "alice", "debug"); got != "2026-06-01T12:00:00Z;by=alice;reason=debug" {
-		t.Fatalf("FormatEntry = %q", got)
-	}
-	if got := FormatEntry(exp, "", ""); got != "2026-06-01T12:00:00Z" {
-		t.Fatalf("FormatEntry (no attrs) = %q", got)
+	if got := FormatExpiry(exp); got != "2026-06-01T12:00:00Z" {
+		t.Fatalf("FormatExpiry = %q", got)
 	}
 
 	// Round-trip: a formatted value parses back to the same absolute expiry.
-	e, err := ParseEntry("k", FormatEntry(exp, "bob", "x"))
+	e, err := ParseEntry(FormatExpiry(exp))
 	if err != nil || e.Expiry == nil || !e.Expiry.Equal(exp) {
 		t.Fatalf("round-trip failed: %+v err=%v", e, err)
 	}

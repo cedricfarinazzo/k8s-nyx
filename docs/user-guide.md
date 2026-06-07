@@ -50,7 +50,7 @@ spec:
 | `kinds` | list | Restrict to a subset of the handled kinds (`Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `HorizontalPodAutoscaler`). Empty = all handled kinds. A listed kind with no handler is ignored with a Warning Event (see below). |
 | `excludeRefs[]` | list | `{kind, name, namespace?}` workloads to leave untouched. A `namespace`-less ref matches that kind+name in **any** namespace. |
 | `sleepReplicas` | int (≥0) | Replica count applied while asleep. Default `0`. |
-| `temporaryWake.defaultDuration` | duration | Applied to a wake entry with no explicit expiry. |
+| `temporaryWake.defaultDuration` | duration | Applied when the wake value has no explicit expiry (empty). |
 | `temporaryWake.maxDuration` | duration | Safety cap; any longer wake is clamped to `now + maxDuration`. |
 | `dryRun` | bool | Log intended scaling + emit `DryRun*` events without mutating. |
 
@@ -60,7 +60,7 @@ spec:
 |-------|---------|
 | `phase` | `Asleep`, `Awake`, or `WokenByOverride`. |
 | `nextTransition` | Timestamp of the next schedule flip. |
-| `activeWakes` | Number of non-expired wake override entries. |
+| `activeWakes` | `1` while a wake override is active, else `0`. |
 
 ## How windows are evaluated
 
@@ -150,61 +150,60 @@ manifest without conflict.
 
 ## Wake overrides
 
-To keep targets awake *now* without editing the schedule, write an entry into the
-schedule's wake ConfigMap. The operator owns one ConfigMap per schedule, named
-`<schedule-name>-wake`, in the schedule's namespace (it is created automatically;
-your entries are never clobbered).
+To keep targets awake *now* without editing the schedule, set the wake override on
+the schedule's wake ConfigMap. The operator owns one ConfigMap per schedule, named
+`<schedule-name>-wake`, in the schedule's namespace (it is created automatically).
 
-### Entry format
+### The `wake` value
 
-Each ConfigMap **data value** is:
+The override is a **single value** under the data key **`wake`** — just an expiry,
+nothing else:
 
 ```
-<expiry>[;by=<who>][;reason=<text>]
+<expiry>
 ```
 
-where `<expiry>` is either:
+where `<expiry>` is one of:
 
-- an absolute **RFC3339** timestamp — `2026-06-05T15:00:00Z`, or
 - a relative **`+duration`** — `+2h`, `+90m`, `+1h30m`, or
-- *omitted* (value is empty or only `by=`/`reason=` attributes) — the schedule's
-  `temporaryWake.defaultDuration` is applied.
-
-The data **key** is yours to choose (e.g. a ticket id); entries are processed in
-key order.
+- an absolute **RFC3339** timestamp — `2026-06-05T20:00:00Z`, or
+- **empty** (`""`) — the schedule's `temporaryWake.defaultDuration` is applied.
 
 ```sh
-# wake for 2 hours, attributed
+# wake for 2 hours
 kubectl -n team-a patch configmap backoffice-wake --type merge \
-  -p '{"data":{"INC-42":"+2h;by=alice;reason=hotfix"}}'
+  -p '{"data":{"wake":"+2h"}}'
 
 # wake until a specific time
 kubectl -n team-a patch configmap backoffice-wake --type merge \
-  -p '{"data":{"release":"2026-06-05T20:00:00Z;by=release-bot"}}'
+  -p '{"data":{"wake":"2026-06-05T20:00:00Z"}}'
 
 # wake for the default duration
 kubectl -n team-a patch configmap backoffice-wake --type merge \
-  -p '{"data":{"adhoc":"by=bob;reason=looking-into-something"}}'
+  -p '{"data":{"wake":""}}'
+
+# cancel an active wake early
+kubectl -n team-a patch configmap backoffice-wake --type merge \
+  -p '{"data":{"wake":null}}'
 ```
 
-### What the operator does with entries
+### What the operator does with the value
 
-- **Stamps** a relative `+duration` (or a no-expiry entry) to an absolute
-  timestamp, written back **once**, so it doesn't keep extending on every
-  reconcile.
-- **Clamps** any expiry beyond `temporaryWake.maxDuration` down to
+- **Stamps** a relative `+duration` (or an empty value) to an absolute timestamp,
+  written back **once**, so it doesn't keep extending on every reconcile.
+- **Clamps** an expiry beyond `temporaryWake.maxDuration` down to
   `now + maxDuration` (emits a `WakeClamped` event).
-- **Forces the targets awake** while any entry is active — `status.phase` becomes
-  `WokenByOverride` even outside an awake window.
-- **Self-cleans**: expired entries are deleted (a `WakeExpired` event is emitted),
-  and the targets return to whatever the schedule says.
-- **Ignores malformed entries** (bad timestamp/duration) and surfaces them as
-  `MalformedWakeEntry` / `UnresolvableWakeEntry` Warning events — the rest still
-  apply.
+- **Forces the targets awake** while the override is active — `status.phase`
+  becomes `WokenByOverride` even outside an awake window.
+- **Self-cleans**: an expired override is removed (a `WakeExpired` event is
+  emitted), and the targets return to whatever the schedule says.
+- **Ignores a malformed value** (bad timestamp/duration) and surfaces it as a
+  `MalformedWakeEntry` / `UnresolvableWakeEntry` Warning event; the schedule is
+  unaffected.
 
-> Waking requires `temporaryWake` to be configured if you rely on the default
-> duration: a no-expiry entry with no `defaultDuration` is rejected (Warning
-> event) rather than waking forever.
+> Relying on the default duration requires `temporaryWake.defaultDuration` to be
+> configured: an empty value with no `defaultDuration` is rejected (Warning event)
+> rather than waking forever.
 
 ## Dry run
 

@@ -73,11 +73,11 @@ when it first went to sleep.
 ## 5. Wake it on demand
 
 The operator creates a ConfigMap `demo-weekdays-wake` in the `demo` namespace.
-Add an entry to wake the targets for two hours:
+Set its `wake` value to wake the targets for two hours:
 
 ```sh
 kubectl -n demo patch configmap demo-weekdays-wake --type merge \
-  -p '{"data":{"ticket-1234":"+2h;by=alice;reason=debugging"}}'
+  -p '{"data":{"wake":"+2h"}}'
 ```
 
 `kubectl get sleepschedule -n demo` now shows `PHASE: WokenByOverride` and

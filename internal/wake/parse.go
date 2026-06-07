@@ -4,49 +4,41 @@ Copyright 2026.
 Licensed under the MIT License.
 */
 
-// Package wake parses the entries written into a schedule's Wake ConfigMap.
-// A data value is "<expiry-or-+duration>[;by=<who>;reason=<text>]" — for example
-// "2026-06-05T15:00:00+02:00;by=alice;reason=debugging" or "+1h;by=bob".
-// Resolving relative durations and honouring entries are separate stories; this
-// package only parses, validates, and surfaces malformed input.
+// Package wake parses and resolves the single wake-override value the operator
+// reads from a schedule's wake ConfigMap. The override is just an expiry — an
+// RFC3339 timestamp, a relative "+duration", or empty (use the schedule's
+// temporaryWake.defaultDuration). There is no key, author, or reason: the
+// ConfigMap holds one value under a well-known key and that value is the expiry.
 package wake
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
 
-// Entry is a parsed wake override. Exactly one of Expiry / Relative is set.
+// Entry is a parsed wake override. At most one of Expiry / Relative is set; both
+// nil means "no expiry given" (resolve applies the default duration).
 type Entry struct {
-	// Key is the ConfigMap data key the entry came from.
-	Key string
 	// Expiry is the absolute expiry when the value is an RFC3339 timestamp.
 	Expiry *time.Time
-	// Relative is the unresolved relative duration when the value is "+<duration>".
-	// Resolving it to an absolute time (and clamping) is a separate story.
+	// Relative is the unresolved duration when the value is "+<duration>".
 	Relative *time.Duration
-	// By and Reason are optional attribution for the audit trail.
-	By     string
-	Reason string
 }
 
-// ParseEntry parses a single Wake ConfigMap data value. A malformed head segment
-// (neither a valid RFC3339 timestamp nor a positive "+<duration>") is an error;
-// the caller drops the entry and surfaces the offending key.
-func ParseEntry(key, value string) (Entry, error) {
-	segments := strings.Split(value, ";")
-	head := strings.TrimSpace(segments[0])
-
-	e := Entry{Key: key}
-	// A head that is empty or itself a "k=v" attribute means no expiry/duration was
-	// given — the caller applies temporaryWake.defaultDuration. Then every segment
-	// (including the first) is an attribute.
-	attrSegments := segments[1:]
+// ParseEntry parses a wake-override value. The value is one of:
+//
+//   - "+<duration>"      — relative, e.g. "+2h", "+90m", "+1h30m"
+//   - an RFC3339 stamp   — absolute, e.g. "2026-06-05T20:00:00Z"
+//   - "" (empty)         — no expiry; resolve applies temporaryWake.defaultDuration
+//
+// Anything else is an error; the caller surfaces it as a Warning and ignores it.
+func ParseEntry(value string) (Entry, error) {
+	head := strings.TrimSpace(value)
+	var e Entry
 	switch {
-	case head == "" || strings.Contains(head, "="):
-		attrSegments = segments
+	case head == "":
+		// No expiry: the default duration is applied at resolve time.
 	case strings.HasPrefix(head, "+"):
 		d, err := time.ParseDuration(head)
 		if err != nil {
@@ -63,45 +55,10 @@ func ParseEntry(key, value string) (Entry, error) {
 		}
 		e.Expiry = &t
 	}
-
-	for _, seg := range attrSegments {
-		seg = strings.TrimSpace(seg)
-		if seg == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(seg, "=")
-		if !ok {
-			continue // ignore an attribute that is not key=value (lenient)
-		}
-		switch strings.TrimSpace(k) {
-		case "by":
-			e.By = strings.TrimSpace(v)
-		case "reason":
-			e.Reason = strings.TrimSpace(v)
-		}
-	}
 	return e, nil
 }
 
-// HasExpiry reports whether the entry carries an explicit expiry or relative
-// duration. False means "no expiry given" — apply the default duration.
+// HasExpiry reports whether an explicit expiry (absolute or relative) was given.
 func (e Entry) HasExpiry() bool {
 	return e.Expiry != nil || e.Relative != nil
-}
-
-// ParseData parses every entry in a ConfigMap's data. It returns the valid entries
-// (sorted by key for deterministic processing) and a map of key → parse error for
-// the malformed ones, so the caller can drop them and emit Warning Events.
-func ParseData(data map[string]string) (valid []Entry, errs map[string]error) {
-	errs = map[string]error{}
-	for k, v := range data {
-		e, err := ParseEntry(k, v)
-		if err != nil {
-			errs[k] = err
-			continue
-		}
-		valid = append(valid, e)
-	}
-	sort.Slice(valid, func(i, j int) bool { return valid[i].Key < valid[j].Key })
-	return valid, errs
 }

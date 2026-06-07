@@ -30,5 +30,5 @@ pitch.
 | **Awake window** | A half-open `[from, to)` time range on given weekdays, in the schedule's IANA timezone. Outside all windows ⇒ asleep. |
 | **Target** | The workloads a schedule acts on — by `namespaces` or by label `selector`. |
 | **Checkpoint** | The out-of-band Secret storing each workload's pre-sleep state (replicas, `nodeSelector`, `spec.suspend`, or HPA bounds), for exact restore. |
-| **Wake override** | An on-demand, time-bounded "stay awake now" entry in the schedule's wake ConfigMap. |
+| **Wake override** | An on-demand, time-bounded "stay awake now" expiry set as the `wake` value in the schedule's wake ConfigMap. |
 | **Phase** | `Asleep`, `Awake`, or `WokenByOverride` — surfaced in `status.phase`. |
