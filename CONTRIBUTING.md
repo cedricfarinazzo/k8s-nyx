@@ -2,7 +2,9 @@
 
 Thanks for your interest in contributing! This page covers the contribution
 **policy**. For the hands-on developer workflow (build/test/codegen/release), see
-the [Developer Guide](docs/contributing.md).
+the [Developer Guide](docs/contributing.md). By participating you agree to abide
+by our [Code of Conduct](CODE_OF_CONDUCT.md); to report a vulnerability, see the
+[Security Policy](SECURITY.md).
 
 ## Prerequisites
 
