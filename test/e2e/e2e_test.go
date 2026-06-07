@@ -84,7 +84,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 	It("sleeps every kind, then wakes and restores exactly", func() {
 		ns := newNamespace(ctx)
 		ks := provisionAllKinds(ctx, ns)
-		tz, win := liveAwakeWindow(t1Wake, time.Hour)
+		tz, win, _ := liveAwakeWindow(t1Wake, time.Hour)
 		newSchedule(ctx, ns, "lifecycle", tz, win, nil, nil)
 
 		By("all kinds asleep shortly after creation")
@@ -100,7 +100,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 		for i := 0; i < 3; i++ {
 			ns := newNamespace(ctx)
 			ks := provisionAllKinds(ctx, ns)
-			tz, win := liveAwakeWindow(t2Wake, time.Hour)
+			tz, win, _ := liveAwakeWindow(t2Wake, time.Hour)
 			newSchedule(ctx, ns, "lifecycle", tz, win, nil, nil)
 			sets = append(sets, ks)
 		}
@@ -118,7 +118,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 	It("only sleeps the kinds in spec.kinds and leaves the others up", func() {
 		ns := newNamespace(ctx)
 		ks := provisionAllKinds(ctx, ns)
-		tz, win := liveAwakeWindow(time.Hour, time.Hour) // far future: stays asleep for the whole test
+		tz, win, _ := liveAwakeWindow(time.Hour, time.Hour) // far future: stays asleep for the whole test
 		newSchedule(ctx, ns, "partial", tz, win,
 			[]string{workload.KindDeployment, workload.KindCronJob}, nil)
 
@@ -139,7 +139,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 		ns := newNamespace(ctx)
 		newStatefulSet(ctx, ns, "guarded", true, nil)
 		newStatefulSet(ctx, ns, "optedin", true, map[string]string{allowPVCDeletion: "true"})
-		tz, win := liveAwakeWindow(time.Hour, time.Hour)
+		tz, win, _ := liveAwakeWindow(time.Hour, time.Hour)
 		newSchedule(ctx, ns, "pvc-guard", tz, win, []string{workload.KindStatefulSet}, nil)
 
 		By("opted-in StatefulSet sleeps")
@@ -156,7 +156,7 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 		ns := newNamespace(ctx)
 		dep := "web"
 		newDeployment(ctx, ns, dep)
-		tz, win := alwaysAsleepWindow(t5Window, time.Hour)
+		tz, win, opensAt := liveAwakeWindow(t5Window, time.Hour)
 		newSchedule(ctx, ns, "override", tz, win, []string{workload.KindDeployment},
 			&nyxv1alpha1.TemporaryWake{
 				DefaultDuration: metav1Duration(2 * time.Minute),
@@ -176,9 +176,15 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 		By("asleep again once the override expires")
 		Eventually(deployReplicas(ctx, ns, dep), 4*time.Minute, pollInterval).Should(Equal(sleepReplicas))
 
-		By("awake again when the scheduled window opens (resumes on its own)")
-		// The schedule's awake window opens t5Window after creation; once the
-		// override is gone the deployment must wake on schedule, not stay asleep.
-		Eventually(deployReplicas(ctx, ns, dep), t5Window+wakeSlack, pollInterval).Should(Equal(awakeReplicas))
+		// It must wake AT the scheduled window, not merely some time later: stay
+		// asleep right up to the edge, then wake within a reconcile of it. The
+		// Consistently guards against an early wake; the Eventually against a late one.
+		By("stays asleep right up to the scheduled window opening (no early wake)")
+		if until := time.Until(opensAt) - 20*time.Second; until > 0 {
+			Consistently(deployReplicas(ctx, ns, dep), until, pollInterval).Should(Equal(sleepReplicas))
+		}
+
+		By("wakes within a reconcile of the scheduled window opening")
+		Eventually(deployReplicas(ctx, ns, dep), 90*time.Second, pollInterval).Should(Equal(awakeReplicas))
 	})
 })
