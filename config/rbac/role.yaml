@@ -8,13 +8,28 @@ rules:
   - ""
   resources:
   - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -27,7 +42,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - autoscaling
@@ -37,7 +51,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - batch
@@ -48,31 +61,19 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - nyx.dev
   resources:
   - sleepschedules
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - nyx.dev
-  resources:
-  - sleepschedules/finalizers
-  verbs:
-  - update
 - apiGroups:
   - nyx.dev
   resources:
   - sleepschedules/status
   verbs:
   - get
-  - patch
   - update

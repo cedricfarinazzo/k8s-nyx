@@ -46,14 +46,29 @@ type SleepScheduleReconciler struct {
 	Now func() time.Time
 }
 
-// +kubebuilder:rbac:groups=nyx.dev,resources=sleepschedules,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=nyx.dev,resources=sleepschedules/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=nyx.dev,resources=sleepschedules/finalizers,verbs=update
-// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// Least-privilege RBAC (VC-159): each verb below is one the controller actually
+// exercises. list+watch are kept wherever a resource is read through the manager's
+// informer cache (a cached Get is served from a list+watch informer), even when the
+// code only calls Get. See docs/operator-guide.md for the per-rule rationale.
+//
+// SleepSchedule: read-only watch/get (For); status via the /status subresource
+// only; the controller never creates, deletes, patches, or finalizes the CR.
+// +kubebuilder:rbac:groups=nyx.dev,resources=sleepschedules,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nyx.dev,resources=sleepschedules/status,verbs=get;update
+// Workloads: list to resolve targets, watch for the informer cache, patch /spec
+// (replicas, nodeSelector sentinel, suspend, HPA min/max). No update is used.
+// +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;patch
+// Checkpoint Secrets (operator namespace): get/create/update/delete the exact-restore
+// store; no patch.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
+// Wake ConfigMaps: get/create/update the per-schedule override map (Owns adds the
+// watch); it is owner-ref garbage-collected, never operator-deleted, and never patched.
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update
+// Events: emitted on workloads and SleepSchedules in any namespace, so this must be
+// cluster-wide (Events are written in the involved object's namespace).
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile evaluates the schedule, applies sleep/wake to the targeted workloads,
 // updates status, and requeues at the next transition.
