@@ -19,6 +19,21 @@
   "semanticCommitScope": "deps",
   "packageRules": [
     {
+      "description": "Hold the Kubernetes client libraries at the go-1.25 tier: k8s.io/* v0.36 and controller-runtime v0.24 require Go 1.26, but the latest golangci-lint (built with Go 1.25) cannot lint a Go-1.26 target, so CI's Lint job fails. Lift these caps once a Go-1.26 golangci-lint ships.",
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apimachinery",
+        "k8s.io/client-go"
+      ],
+      "allowedVersions": "<0.36.0"
+    },
+    {
+      "matchPackageNames": [
+        "sigs.k8s.io/controller-runtime"
+      ],
+      "allowedVersions": "<0.24.0"
+    },
+    {
       "description": "Group minor and patch updates (and digests) into a single PR; majors stay separate for individual review.",
       "matchUpdateTypes": [
         "minor",
