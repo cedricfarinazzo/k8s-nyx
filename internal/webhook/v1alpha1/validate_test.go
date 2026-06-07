@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
@@ -43,14 +42,8 @@ func TestValidator_CreateUpdateDelete(t *testing.T) {
 	if _, err := v.ValidateDelete(ctx, validSchedule()); err != nil {
 		t.Fatalf("delete should never error: %v", err)
 	}
-
-	// Wrong object type on create and update.
-	if _, err := v.ValidateCreate(ctx, &corev1.Pod{}); err == nil {
-		t.Fatal("expected error for non-SleepSchedule on create")
-	}
-	if _, err := v.ValidateUpdate(ctx, nil, &corev1.Pod{}); err == nil {
-		t.Fatal("expected error for non-SleepSchedule on update")
-	}
+	// The validator is now generic over *SleepSchedule, so a wrong object type is a
+	// compile-time error rather than a runtime check — no negative case needed.
 }
 
 func TestValidator_Rules(t *testing.T) {

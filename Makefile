@@ -1,7 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= ghcr.io/cedricfarinazzo/k8s-nyx:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.31.0
+ENVTEST_K8S_VERSION = 1.35.0
 
 # Get the currently used golang install path
 ifeq (,$(shell go env GOBIN))
@@ -89,7 +89,7 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.16.5
-ENVTEST_VERSION ?= release-0.19
+ENVTEST_VERSION ?= release-0.23
 GOLANGCI_LINT_VERSION ?= v2.12.2
 
 .PHONY: controller-gen
@@ -113,7 +113,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 GINKGO ?= $(LOCALBIN)/ginkgo
 # Pin ginkgo to the version of the module dependency so the CLI and the linked
 # library stay in lock-step.
-GINKGO_VERSION ?= v2.20.2
+GINKGO_VERSION ?= v2.29.0
 # E2E_TIMEOUT bounds the whole suite; the longest scenario waits out a ~5–7 min
 # live window (override the E2E_* knobs in the suite to shorten locally).
 E2E_TIMEOUT ?= 30m

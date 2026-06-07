@@ -89,7 +89,10 @@ func main() {
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		OperatorNamespace: operatorNamespace,
-		Recorder:          mgr.GetEventRecorderFor("k8s-nyx"),
+		// GetEventRecorderFor returns the classic record.EventRecorder the whole
+		// codebase uses; the newer GetEventRecorder returns the different
+		// events.EventRecorder API, which is a separate migration.
+		Recorder: mgr.GetEventRecorderFor("k8s-nyx"), //nolint:staticcheck // SA1019: old events API still supported
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SleepSchedule")
 		os.Exit(1)
