@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.0...v2.0.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* **deps:** bump k8s 0.35 / controller-runtime 0.23 (go 1.25 tier) ([#61](https://github.com/cedricfarinazzo/k8s-nyx/issues/61)) ([7376466](https://github.com/cedricfarinazzo/k8s-nyx/commit/7376466199ade2f205e8cb7ed6b0e3c659089ab9)), closes [#59](https://github.com/cedricfarinazzo/k8s-nyx/issues/59)
+
 # [2.0.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.8.0...v2.0.0) (2026-06-07)
 
 
