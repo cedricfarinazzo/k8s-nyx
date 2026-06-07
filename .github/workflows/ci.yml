@@ -120,12 +120,19 @@ jobs:
           helm show chart /tmp/pkg/k8s-nyx-chart-9.9.9.tgz | grep -qx 'appVersion: 9.9.9'
           helm template nyx /tmp/pkg/k8s-nyx-chart-9.9.9.tgz | grep -q 'k8s-nyx:9.9.9'
 
-  helm-install:
-    name: Helm install (kind)
+  e2e:
+    name: E2E (kind)
     runs-on: ubuntu-latest
+    # The suite waits out real ~5–7 min sleep/wake windows; bound the whole job.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
@@ -145,7 +152,7 @@ jobs:
           tags: k8s-nyx:ci
       - name: Load image into kind
         run: kind load docker-image k8s-nyx:ci --name nyx-ci
-      # AC3: helm install on a fresh cluster, operator becomes Ready.
+      # AC1/AC3: helm install on a fresh cluster, operator becomes Ready.
       - name: helm install
         run: |
           helm install nyx charts/k8s-nyx-chart \
@@ -159,5 +166,9 @@ jobs:
           kubectl -n nyx-system rollout status deploy/nyx-k8s-nyx-chart --timeout=2m
           kubectl -n nyx-system wait --for=condition=Available deploy/nyx-k8s-nyx-chart --timeout=2m
           kubectl get crd sleepschedules.nyx.dev
-      - name: helm test
+      - name: helm test (smoke)
         run: helm test nyx --namespace nyx-system --timeout 2m
+      # AC1/AC3: the behavioural suite — sleep/wake/restore across every kind,
+      # multi-namespace, kind targeting, PVC-deletion guard, temporary-wake override.
+      - name: e2e suite
+        run: make test-e2e

@@ -44,6 +44,10 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+.PHONY: test-e2e
+test-e2e: ginkgo ## Run the kind-based e2e suite (needs a cluster with the operator installed; see docs/contributing.md).
+	$(GINKGO) -p --tags e2e --timeout $(E2E_TIMEOUT) $(GINKGO_FLAGS) ./test/e2e/...
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
 	$(GOLANGCI_LINT) run
@@ -105,3 +109,17 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_LINT_VERSION) || \
 	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+GINKGO ?= $(LOCALBIN)/ginkgo
+# Pin ginkgo to the version of the module dependency so the CLI and the linked
+# library stay in lock-step.
+GINKGO_VERSION ?= v2.20.2
+# E2E_TIMEOUT bounds the whole suite; the longest scenario waits out a ~5–7 min
+# live window (override the E2E_* knobs in the suite to shorten locally).
+E2E_TIMEOUT ?= 30m
+
+.PHONY: ginkgo
+ginkgo: $(GINKGO) ## Download the ginkgo CLI locally if necessary.
+$(GINKGO): $(LOCALBIN)
+	test -s $(LOCALBIN)/ginkgo && $(LOCALBIN)/ginkgo version | grep -q $(GINKGO_VERSION:v%=%) || \
+	GOBIN=$(LOCALBIN) go install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
