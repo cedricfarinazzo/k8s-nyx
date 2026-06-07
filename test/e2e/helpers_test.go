@@ -285,9 +285,14 @@ func newSchedule(
 	return ss
 }
 
-// writeWakeOverride adds a data entry to the operator-owned <schedule>-wake
-// ConfigMap (created by the operator). value is e.g. "+2m;by=e2e;reason=test".
-func writeWakeOverride(ctx context.Context, ns, schedule, key, value string) {
+// wakeKey is the single ConfigMap key the operator reads for the override (must
+// match the controller's WakeKey).
+const wakeKey = "wake"
+
+// writeWakeOverride sets the wake-override value on the operator-owned
+// <schedule>-wake ConfigMap. value is the expiry — e.g. "+2m", an RFC3339 stamp,
+// or "" for the schedule's defaultDuration.
+func writeWakeOverride(ctx context.Context, ns, schedule, value string) {
 	cmName := schedule + "-wake"
 	Eventually(func() error {
 		var cm corev1.ConfigMap
@@ -297,7 +302,7 @@ func writeWakeOverride(ctx context.Context, ns, schedule, key, value string) {
 		if cm.Data == nil {
 			cm.Data = map[string]string{}
 		}
-		cm.Data[key] = value
+		cm.Data[wakeKey] = value
 		return k8sClient.Update(ctx, &cm)
 	}, asleepTimeout, pollInterval).Should(Succeed(), "operator should have created the wake ConfigMap")
 }

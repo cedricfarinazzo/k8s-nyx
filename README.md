@@ -48,8 +48,7 @@ and asleep the rest of the time. Need it awake right now? See
   HorizontalPodAutoscalers, each slept by a reversible, kind-appropriate
   mechanism (with a data-loss guard for `whenScaled: Delete` StatefulSets).
 - **On-demand wake.** Anyone can wake a sleeping environment for a bounded window
-  without editing the schedule, with `by`/`reason` attribution and a max-duration
-  safety cap.
+  without editing the schedule — one value, with a max-duration safety cap.
 - **GitOps-safe.** Only the one field needed to sleep each kind is patched, via a
   merge patch — no fights with ArgoCD over the rest of the manifest.
 - **Observable.** Prometheus metrics, structured JSON audit logs, and Kubernetes
@@ -83,23 +82,24 @@ full picture.
 ## Wake on demand (temporary wake)
 
 A sleeping environment can be woken **right now**, for a **bounded** period,
-without editing the schedule — handy for an after-hours hotfix or a demo. Drop one
-entry into the schedule's wake `ConfigMap` (`<schedule-name>-wake`, created
-automatically in the schedule's namespace):
+without editing the schedule — handy for an after-hours hotfix or a demo. Set the
+`wake` key on the schedule's wake `ConfigMap` (`<schedule-name>-wake`, created
+automatically in the schedule's namespace) to an expiry:
 
 ```sh
-# wake team-a's "backoffice" schedule for 2 hours, attributed
+# wake team-a's "backoffice" schedule for 2 hours
 kubectl -n team-a patch configmap backoffice-wake --type merge \
-  -p '{"data":{"INC-42":"+2h;by=alice;reason=hotfix"}}'
+  -p '{"data":{"wake":"+2h"}}'
 ```
 
 The targets come back up within a reconcile, `status.phase` becomes
-`WokenByOverride`, and when the entry expires the operator removes it and the
-workloads return to sleep — restored exactly. Entry values can be a relative
-`+duration` (`+90m`, `+1h30m`), an absolute RFC3339 timestamp, or empty (uses the
-schedule's `temporaryWake.defaultDuration`). Anything longer than
+`WokenByOverride`, and when the override expires the operator clears it and the
+workloads return to sleep — restored exactly. The value is just the expiry: a
+relative `+duration` (`+90m`, `+1h30m`), an absolute RFC3339 timestamp, or empty
+(uses the schedule's `temporaryWake.defaultDuration`). Anything longer than
 `temporaryWake.maxDuration` is clamped, so a forgotten wake can't pin an
-environment awake forever. Full format and bounds:
+environment awake forever. Cancel early by removing the key
+(`-p '{"data":{"wake":null}}'`). Full details:
 [User Guide → wake overrides](docs/user-guide.md#wake-overrides).
 
 ## Install

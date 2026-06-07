@@ -41,10 +41,11 @@ package:
   one sleep field (replicas / `nodeSelector` / `spec.suspend` / HPA min-max). The
   checkpoint is a Secret, so it survives restarts.
 - **Wake override** (`internal/wake` + reconciler): the operator owns a
-  `<schedule>-wake` ConfigMap. Triggers write entries; the operator stamps
-  relative `+duration`s to absolute (once), applies a default, clamps to a max,
-  deletes expired entries, and forces targets awake while any entry is active
-  (`status.phase = WokenByOverride`). Malformed entries become Warning events.
+  `<schedule>-wake` ConfigMap. A trigger sets the single `wake` value (an expiry);
+  the operator stamps a relative `+duration` to absolute (once), applies the
+  default, clamps to a max, deletes it on expiry, and forces targets awake while
+  it is active (`status.phase = WokenByOverride`). A malformed value becomes a
+  Warning event.
 - **Status & events**: `phase` / `nextTransition` / `activeWakes` are kept
   current; sleep/wake emit Events on the affected workloads; reconcile is
   idempotent — it writes nothing when nothing changed.
@@ -64,8 +65,8 @@ package:
   (`spec.suspend`), and HorizontalPodAutoscaler (min/max neutralize); new kinds
   plug in by registering a handler.
 - `internal/checkpoint/` — the exact-restore Secret store (keyed kind+ns+name+UID).
-- `internal/wake/` — parses/resolves wake ConfigMap entries (RFC3339 or
-  `+duration`, with `by`/`reason`).
+- `internal/wake/` — parses/resolves the wake ConfigMap's single `wake` value
+  (RFC3339, `+duration`, or empty for the default).
 - `internal/webhook/v1alpha1/` — validating admission webhook (IANA timezone,
   window ordering, target consistency) for what OpenAPI can't express.
 - `config/` — **controller-gen output only** (`crd/bases`, `rbac/role.yaml`,

@@ -192,7 +192,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
 	})
 
-	It("warns on malformed wake entries and audits accepted ones (AC3/AC4)", func() {
+	It("warns on a malformed wake value and accepts a valid one (AC3/AC4)", func() {
 		obj := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
 			Spec:       validSpec(),
@@ -205,18 +205,21 @@ var _ = Describe("SleepSchedule controller", func() {
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 
-		// Write a valid and a malformed entry into it.
-		cm := &corev1.ConfigMap{}
-		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
-		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
-		cm.Data = map[string]string{
-			"alice-1": "2099-01-01T00:00:00Z;by=alice;reason=debug", // future → active, audited
-			"bad-1":   "not-a-time",
+		setOneKey := func(value string) {
+			cm := &corev1.ConfigMap{}
+			cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
+			Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
+			cm.Data = map[string]string{WakeKey: value}
+			Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 		}
-		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
-
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
+
+		// Malformed value → MalformedWakeEntry Warning.
+		setOneKey("not-a-time")
+		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
+		// Valid future value → WakeEntryAccepted.
+		setOneKey("2099-01-01T00:00:00Z")
 		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		var events []string
@@ -224,17 +227,17 @@ var _ = Describe("SleepSchedule controller", func() {
 		for len(rec.Events) > 0 {
 			events = append(events, <-rec.Events)
 		}
-		var warned, audited bool
+		var warned, accepted bool
 		for _, e := range events {
-			if containsAll(e, "Warning", "MalformedWakeEntry", "bad-1") {
+			if containsAll(e, "Warning", "MalformedWakeEntry") {
 				warned = true
 			}
-			if containsAll(e, "Normal", "WakeEntryAccepted", "alice-1", "alice") {
-				audited = true
+			if containsAll(e, "Normal", "WakeEntryAccepted") {
+				accepted = true
 			}
 		}
-		Expect(warned).To(BeTrue(), "expected a Warning naming the bad key")
-		Expect(audited).To(BeTrue(), "expected a Normal audit event with by/reason")
+		Expect(warned).To(BeTrue(), "expected a Warning for the malformed value")
+		Expect(accepted).To(BeTrue(), "expected a WakeEntryAccepted Event")
 	})
 
 	It("warns and continues when spec.kinds includes a kind with no handler (AC2)", func() {
@@ -275,18 +278,19 @@ var _ = Describe("SleepSchedule controller", func() {
 		}
 		return obj
 	}
-	setWakeData := func(data map[string]string) {
+	setWake := func(value string) {
 		cm := &corev1.ConfigMap{}
 		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
 		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
-		cm.Data = data
+		cm.Data = map[string]string{WakeKey: value}
 		Expect(k8sClient.Update(ctx, cm)).To(Succeed())
 	}
-	getWakeData := func() map[string]string {
+	getWake := func() (string, bool) {
 		cm := &corev1.ConfigMap{}
 		cmNN := types.NamespacedName{Namespace: namespace, Name: WakeConfigMapName(resourceName)}
 		Expect(k8sClient.Get(ctx, cmNN, cm)).To(Succeed())
-		return cm.Data
+		v, ok := cm.Data[WakeKey]
+		return v, ok
 	}
 
 	It("stamps +duration to absolute exactly once (AC1)", func() {
@@ -296,18 +300,20 @@ var _ = Describe("SleepSchedule controller", func() {
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 
-		setWakeData(map[string]string{"bob": "+1h;by=bob"})
+		setWake("+1h")
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
 		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(time.Hour).UTC().Format(time.RFC3339)
-		Expect(getWakeData()["bob"]).To(Equal(want + ";by=bob"))
+		v, _ := getWake()
+		Expect(v).To(Equal(want))
 
 		// A second pass at a LATER time must not re-extend the now-absolute value.
 		r.Now = func() time.Time { return now.Add(30 * time.Minute) }
 		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
-		Expect(getWakeData()["bob"]).To(Equal(want+";by=bob"), "absolute value must not re-extend")
+		v, _ = getWake()
+		Expect(v).To(Equal(want), "absolute value must not re-extend")
 	})
 
 	It("applies defaultDuration to a no-expiry entry (AC2)", func() {
@@ -317,13 +323,14 @@ var _ = Describe("SleepSchedule controller", func() {
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 
-		setWakeData(map[string]string{"alice": "by=alice;reason=lunch"})
+		setWake("") // empty value → no expiry → defaultDuration
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
 		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(time.Hour).UTC().Format(time.RFC3339) // default 1h
-		Expect(getWakeData()["alice"]).To(Equal(want + ";by=alice;reason=lunch"))
+		v, _ := getWake()
+		Expect(v).To(Equal(want))
 	})
 
 	It("clamps an over-cap expiry and records an Event (AC3)", func() {
@@ -335,17 +342,18 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		over := now.Add(100 * time.Hour).UTC().Format(time.RFC3339)
-		setWakeData(map[string]string{"big": over})
+		setWake(over)
 		var ss nyxv1alpha1.SleepSchedule
 		Expect(k8sClient.Get(ctx, nn, &ss)).To(Succeed())
 		Expect(func() error { _, e := r.processWakeEntries(ctx, &ss, r.now()); return e }()).To(Succeed())
 
 		want := now.Add(8 * time.Hour).UTC().Format(time.RFC3339) // clamped to max
-		Expect(getWakeData()["big"]).To(Equal(want))
+		v, _ := getWake()
+		Expect(v).To(Equal(want))
 
 		var clamped bool
 		for len(rec.Events) > 0 {
-			if e := <-rec.Events; containsAll(e, "WakeClamped", "big") {
+			if e := <-rec.Events; containsAll(e, "WakeClamped") {
 				clamped = true
 			}
 		}
@@ -398,7 +406,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(activeWakes()).To(Equal(int32(0)))
 
 		// 2) Active wake → forced awake, restored to 3, phase WokenByOverride, count 1.
-		setWakeData(map[string]string{"w1": now.Add(time.Hour).UTC().Format(time.RFC3339) + ";by=alice"})
+		setWake(now.Add(time.Hour).UTC().Format(time.RFC3339))
 		_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: nn})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(webReplicas()).To(Equal(int32(3)))
@@ -412,7 +420,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(webReplicas()).To(Equal(int32(0)))
 		Expect(phase()).To(Equal(nyxv1alpha1.PhaseAsleep))
 		Expect(activeWakes()).To(Equal(int32(0)))
-		_, present := getWakeData()["w1"]
+		_, present := getWake()
 		Expect(present).To(BeFalse(), "expired entry should be removed from the ConfigMap")
 	})
 
