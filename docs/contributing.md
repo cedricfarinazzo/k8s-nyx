@@ -51,6 +51,41 @@ files are stale.
   plane; no cluster required.
 - New behaviour ships with a test. Edge cases get their own case: DST boundaries,
   restart-and-restore, malformed wake input, namespace-scoped exclusions, etc.
+- **Full-cluster end-to-end** behaviour (sleep → wake → exact restore across every
+  supported kind) uses the **kind-based e2e suite** below.
+
+## End-to-end (kind) suite
+
+`test/e2e/` is a Ginkgo suite, build-tagged `e2e` so `make test` never picks it
+up. It runs against a **real cluster** with the operator already installed, and
+exercises the live behaviour: it provisions a Deployment, StatefulSet, DaemonSet,
+CronJob, Job, and HPA (all on `nginx:alpine`) and asserts each one sleeps and then
+wakes restored. Scenarios cover the single- and multi-namespace lifecycle, kind
+targeting (`spec.kinds`), the `whenScaled=Delete` PVC-deletion guard, and the
+temporary-wake override.
+
+To keep runs short without faking time, the suite **computes the sleep window
+live**: it anchors the schedule's timezone (an `Etc/GMT±N` zone) so the current
+wall-clock is ~noon, then phrases an awake window a few minutes out — so a target
+is asleep now and wakes at the window edge minutes later, never crossing midnight
+or a weekday boundary.
+
+```sh
+# 1. a cluster with the operator installed (mirrors CI):
+kind create cluster --name nyx-e2e
+make docker-build IMG=k8s-nyx:dev
+kind load docker-image k8s-nyx:dev --name nyx-e2e
+helm install nyx charts/k8s-nyx-chart -n nyx-system --create-namespace \
+  --set image.repository=k8s-nyx --set image.tag=dev --set image.pullPolicy=Never --wait
+
+# 2. run the suite (uses the ambient KUBECONFIG):
+make test-e2e
+```
+
+The waits default to the ticket's 5–7 min windows; shorten them locally by
+exporting the `E2E_*` knobs (e.g. `E2E_T1_WAKE=90s E2E_T5_WINDOW=4m
+E2E_T5_OVERRIDE_AT=30s make test-e2e`). In CI the `E2E (kind)` job provisions the
+cluster, installs the chart, and runs the suite on every PR — it **gates merges**.
 
 ## Testing the chart
 
@@ -61,7 +96,8 @@ helm template nyx charts/k8s-nyx-chart -n nyx-system --set webhook.enabled=true
 ```
 
 CI additionally spins up a kind cluster, builds + loads the operator image,
-`helm install`s the chart, and runs `helm test`.
+`helm install`s the chart, runs `helm test`, and then runs the full
+[e2e suite](#end-to-end-kind-suite).
 
 ## Project layout
 
@@ -91,8 +127,8 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full commit/PR rules.
 ## CI / release pipeline
 
 - `.github/workflows/ci.yml` — on PRs and pushes to `master`: build, test, lint,
-  Docker build, Helm lint/template, kind install + `helm test`, and commitlint
-  (PRs).
+  Docker build, Helm lint/template, the `E2E (kind)` job (kind install +
+  `helm test` + the e2e suite), and commitlint (PRs).
 - `.github/workflows/release.yml` — triggered by a **successful CI run** on
   `master` (`workflow_run`); runs semantic-release and, only when a release is
   cut, publishes the image and chart at the computed version.

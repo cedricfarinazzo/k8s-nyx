@@ -68,8 +68,12 @@ package:
 - `charts/k8s-nyx-chart/` — the Helm chart (CRD, RBAC, Deployment, optional
   webhook): the single install path, published to GHCR as an OCI artifact.
 - `docs/` — user/operator/contributor guides.
+- `test/e2e/` — kind-based end-to-end suite (Ginkgo, build-tagged `e2e`):
+  sleep/wake/exact-restore across every kind against a real cluster. Run with
+  `make test-e2e`; excluded from `make test`.
 - `.github/workflows/` — `ci.yml` (build/test/lint/docker + helm lint/template +
-  kind install & `helm test` + commitlint) and `release.yml` (semantic-release →
+  `E2E (kind)` job: kind install & `helm test` & the e2e suite + commitlint) and
+  `release.yml` (semantic-release →
   image + chart publish, gated behind a successful CI run).
 
 ## Stack
@@ -89,7 +93,8 @@ Go, `make`, and Docker (image only).
 
 ```sh
 make build      # compile the manager to bin/manager
-make test       # unit + envtest
+make test       # unit + envtest (excludes the e2e suite)
+make test-e2e   # kind e2e suite (needs a cluster with the operator installed)
 make lint       # golangci-lint
 make manifests  # regenerate CRD / RBAC / webhook manifests after API changes
 make generate   # regenerate deepcopy after API changes
