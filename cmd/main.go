@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 	_ "time/tzdata" // embed IANA tz DB so LoadLocation works in distroless (no /usr/share/zoneinfo)
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,11 +40,18 @@ func main() {
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool
+	var leaseDuration, renewDeadline, retryPeriod time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metrics endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager.")
+		"Enable leader election so only one replica is active (HA).")
+	flag.DurationVar(&leaseDuration, "leader-elect-lease-duration", 15*time.Second,
+		"Duration non-leaders wait before trying to acquire leadership after the leader stops renewing.")
+	flag.DurationVar(&renewDeadline, "leader-elect-renew-deadline", 10*time.Second,
+		"Duration the leader retries refreshing leadership before giving up.")
+	flag.DurationVar(&retryPeriod, "leader-elect-retry-period", 2*time.Second,
+		"Interval between leader-election acquire/renew attempts.")
 	// Development:false selects zap's JSON encoder, so the lifecycle audit logs
 	// are structured JSON (overridable via the --zap-* flags).
 	opts := zap.Options{Development: false}
@@ -61,6 +69,12 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "k8s-nyx.nyx.dev",
+		// Release the lease immediately on graceful shutdown so a standby takes
+		// over fast (well within the lease duration) instead of waiting it out.
+		LeaderElectionReleaseOnCancel: true,
+		LeaseDuration:                 &leaseDuration,
+		RenewDeadline:                 &renewDeadline,
+		RetryPeriod:                   &retryPeriod,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
