@@ -1,7 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= ghcr.io/cedricfarinazzo/k8s-nyx:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.35.0
+ENVTEST_K8S_VERSION = 1.36.0
 
 # Get the currently used golang install path
 ifeq (,$(shell go env GOBIN))
@@ -89,8 +89,13 @@ GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.16.5
-ENVTEST_VERSION ?= release-0.23
+ENVTEST_VERSION ?= release-0.24
 GOLANGCI_LINT_VERSION ?= v2.12.2
+# The published golangci-lint binary is built with the Go version pinned in its
+# own go.mod (currently 1.25), and it refuses to lint a module that targets a
+# newer Go. Our go.mod targets a newer Go, so build golangci-lint from source
+# with that exact toolchain (GOTOOLCHAIN) instead of using a prebuilt binary.
+GO_VERSION := $(shell sed -n 's/^go //p' go.mod)
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
@@ -108,7 +113,7 @@ $(ENVTEST): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_LINT_VERSION:v%=%) || \
-	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOTOOLCHAIN=go$(GO_VERSION) GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 GINKGO ?= $(LOCALBIN)/ginkgo
 # Pin ginkgo to the version of the module dependency so the CLI and the linked

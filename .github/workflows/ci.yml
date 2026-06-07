@@ -73,10 +73,12 @@ jobs:
           cache: true
       - name: Generate manifests and deepcopy
         run: make manifests generate
+      # `make lint` builds golangci-lint from source with the project's Go
+      # toolchain (GOTOOLCHAIN). The prebuilt golangci-lint binary / action is
+      # built with an older Go and refuses to lint our newer Go target, so we
+      # can't use golangci/golangci-lint-action here.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.12.2
+        run: make lint
 
   docker:
     name: Docker build
