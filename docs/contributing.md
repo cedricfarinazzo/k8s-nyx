@@ -133,6 +133,21 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full commit/PR rules.
   `master` (`workflow_run`); runs semantic-release and, only when a release is
   cut, publishes the image and chart at the computed version.
 
+## Dependency updates (Renovate)
+
+`renovate.json` configures automated dependency updates for Go modules, GitHub
+Actions, the container base image (Dockerfile `FROM`), and Helm chart/value image
+references. Two rules of the road:
+
+- **7-day embargo.** `minimumReleaseAge: "7 days"` plus
+  `internalChecksFilter: "strict"` means Renovate won't even open a PR for a new
+  version until it is at least 7 days old — no day-zero adoption. Pending updates
+  show up under "Pending Status Checks" on the Dependency Dashboard issue.
+- **Grouped + gated.** Minor/patch/digest updates are batched into a single
+  weekly PR (`before 9am on monday`); majors get their own PR. Every update PR
+  runs the full CI suite (it can't merge red), and PRs are titled
+  `chore(deps): …` so they cut no release.
+
 ## Local release dry-run
 
 ```sh
