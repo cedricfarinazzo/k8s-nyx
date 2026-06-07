@@ -4,31 +4,62 @@ metadata:
   name: {{ include "k8s-nyx.fullname" . }}-manager
   labels:
     {{- include "k8s-nyx.labels" . | nindent 4 }}
+# Least-privilege RBAC (VC-159): mirrors the controller-gen output in
+# config/rbac/role.yaml. Each verb is one the controller exercises; list+watch are
+# kept for the informer cache. Rationale per rule: docs/operator-guide.md.
 rules:
+# Wake ConfigMaps: get/create/update the per-schedule override map (owner-ref GC'd,
+# never operator-deleted or patched).
 - apiGroups:
   - ""
   resources:
   - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+# Events: emitted on workloads/SleepSchedules in any namespace (cluster-wide).
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+# Checkpoint Secrets: exact-restore store (no patch).
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
+# Workloads: list/watch to resolve+cache targets, patch /spec only (no update).
 - apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   - statefulsets
-  - daemonsets
   verbs:
   - get
   - list
   - patch
-  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+  - patch
   - watch
 - apiGroups:
   - batch
@@ -39,41 +70,20 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
-- apiGroups:
-  - autoscaling
-  resources:
-  - horizontalpodautoscalers
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
+# SleepSchedule: read-only watch/get; status via the /status subresource only.
 - apiGroups:
   - nyx.dev
   resources:
   - sleepschedules
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - nyx.dev
-  resources:
-  - sleepschedules/finalizers
-  verbs:
-  - update
 - apiGroups:
   - nyx.dev
   resources:
   - sleepschedules/status
   verbs:
   - get
-  - patch
   - update

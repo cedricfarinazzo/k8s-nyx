@@ -25,20 +25,33 @@ pinned chart pins a known-good operator image. Full values:
 | CRD `sleepschedules.nyx.dev` | cluster | The API. Carries `resource-policy: keep`. |
 | Deployment (controller-manager) | namespace | The operator. |
 | ServiceAccount | namespace | Identity the operator runs as. |
-| ClusterRole + binding | cluster | List/patch Deployments & StatefulSets; manage checkpoint Secrets & wake ConfigMaps. |
-| Role + binding (leader election) | namespace | Lease/configmap for HA leader election. |
+| ClusterRole + binding | cluster | Watch/patch targeted workloads; manage checkpoint Secrets & wake ConfigMaps; emit Events. See [RBAC footprint](#rbac-footprint). |
+| Role + binding (leader election) | namespace | Lease for HA leader election (+ Events). |
 | Service + ValidatingWebhookConfiguration | cluster | Only when `webhook.enabled=true`. |
 
 ### RBAC footprint
 
-The operator needs cluster-wide access because targets can live in any namespace:
+The operator runs under a **least-privilege** ClusterRole — **no `cluster-admin`,
+no wildcard (`*`) verbs, resources, or apiGroups**. Access is cluster-wide only
+because targeted workloads can live in any namespace. Every granted verb is one the
+controller actually calls; `list`+`watch` are kept wherever a resource is read
+through the manager's informer cache (a cached `Get` is served by a `list`+`watch`
+informer). The ClusterRole mirrors the generated `config/rbac/role.yaml` exactly.
 
-- `apps` / `deployments`, `statefulsets`: `get, list, watch, update, patch`
-  (it only ever patches `/spec/replicas`).
-- core `secrets`, `configmaps`: `get, list, watch, create, update, patch, delete`
-  (checkpoint Secrets and per-schedule wake ConfigMaps).
-- `nyx.dev` `sleepschedules` (+ `/status`, `/finalizers`).
-- `coordination.k8s.io` `leases` and core `events` for leader election + events.
+| apiGroup | Resource | Verbs | Rationale |
+|----------|----------|-------|-----------|
+| `apps` | `deployments`, `statefulsets`, `daemonsets` | `get, list, watch, patch` | List/watch to resolve & cache targets; **patch only `/spec`** (replicas, or the `nyx.dev/asleep` nodeSelector sentinel for DaemonSets). No `update`/`create`/`delete`. |
+| `batch` | `cronjobs`, `jobs` | `get, list, watch, patch` | Same; patch toggles `spec.suspend`. |
+| `autoscaling` | `horizontalpodautoscalers` | `get, list, watch, patch` | Same; patch neutralizes `spec.minReplicas`/`maxReplicas`. |
+| `""` (core) | `secrets` | `get, list, watch, create, update, delete` | The exact-restore checkpoint store (one Secret per schedule, operator namespace). `delete` clears a checkpoint on wake; **no `patch`**. |
+| `""` (core) | `configmaps` | `get, list, watch, create, update` | The per-schedule wake-override ConfigMap. It is owner-ref garbage-collected, never operator-deleted, and never patched — so **no `delete`/`patch`**. |
+| `""` (core) | `events` | `create, patch` | Lifecycle Events on workloads and SleepSchedules. Cluster-wide because an Event is written in the involved object's namespace, which can be any target namespace. |
+| `nyx.dev` | `sleepschedules` | `get, list, watch` | The CR is **read-only** to the controller (reconcile watches & reads it; users author it). No `create`/`update`/`patch`/`delete`. |
+| `nyx.dev` | `sleepschedules/status` | `get, update` | Status is written via the `/status` subresource only; **no `patch`**, and no `finalizers` grant (the controller sets no finalizer). |
+
+Leader election adds a **namespaced** Role (operator namespace) granting
+`coordination.k8s.io/leases` (the Lease lock) and core `events` — no ConfigMap
+grant, since controller-runtime uses the Lease lock, not the legacy ConfigMap lock.
 
 ## The validating webhook
 
