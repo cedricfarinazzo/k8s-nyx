@@ -12,12 +12,10 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
@@ -27,8 +25,7 @@ var sleepschedulelog = logf.Log.WithName("sleepschedule-webhook")
 
 // SetupSleepScheduleWebhookWithManager registers the validating webhook.
 func SetupSleepScheduleWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&nyxv1alpha1.SleepSchedule{}).
+	return ctrl.NewWebhookManagedBy(mgr, &nyxv1alpha1.SleepSchedule{}).
 		WithValidator(&SleepScheduleCustomValidator{}).
 		Complete()
 }
@@ -39,27 +36,22 @@ func SetupSleepScheduleWebhookWithManager(mgr ctrl.Manager) error {
 // OpenAPI schema can express (IANA timezone, window ordering, target consistency).
 type SleepScheduleCustomValidator struct{}
 
-var _ webhook.CustomValidator = &SleepScheduleCustomValidator{}
+// As of controller-runtime v0.23 CustomValidator is generic over the validated
+// type, so the methods receive a typed *SleepSchedule directly (no runtime.Object
+// type assertion needed).
+var _ admission.Validator[*nyxv1alpha1.SleepSchedule] = &SleepScheduleCustomValidator{}
 
-func (v *SleepScheduleCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	ss, ok := obj.(*nyxv1alpha1.SleepSchedule)
-	if !ok {
-		return nil, fmt.Errorf("expected a SleepSchedule object but got %T", obj)
-	}
+func (v *SleepScheduleCustomValidator) ValidateCreate(_ context.Context, ss *nyxv1alpha1.SleepSchedule) (admission.Warnings, error) {
 	sleepschedulelog.V(1).Info("validate create", "name", ss.GetName())
 	return nil, validateSleepSchedule(ss)
 }
 
-func (v *SleepScheduleCustomValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	ss, ok := newObj.(*nyxv1alpha1.SleepSchedule)
-	if !ok {
-		return nil, fmt.Errorf("expected a SleepSchedule object but got %T", newObj)
-	}
-	sleepschedulelog.V(1).Info("validate update", "name", ss.GetName())
-	return nil, validateSleepSchedule(ss)
+func (v *SleepScheduleCustomValidator) ValidateUpdate(_ context.Context, _, newObj *nyxv1alpha1.SleepSchedule) (admission.Warnings, error) {
+	sleepschedulelog.V(1).Info("validate update", "name", newObj.GetName())
+	return nil, validateSleepSchedule(newObj)
 }
 
-func (v *SleepScheduleCustomValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (v *SleepScheduleCustomValidator) ValidateDelete(_ context.Context, _ *nyxv1alpha1.SleepSchedule) (admission.Warnings, error) {
 	return nil, nil
 }
 
