@@ -8,7 +8,7 @@ metadata:
     {{- include "k8s-nyx.labels" . | nindent 4 }}
 rules:
 # Leader election uses the coordination.k8s.io Lease lock (controller-runtime
-# default); no ConfigMap lock, so no configmaps grant here (VC-159).
+# default); no ConfigMap lock, so no configmaps grant here.
 - apiGroups:
   - coordination.k8s.io
   resources:

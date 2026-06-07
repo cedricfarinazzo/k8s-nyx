@@ -424,7 +424,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(present).To(BeFalse(), "expired entry should be removed from the ConfigMap")
 	})
 
-	It("sleeps and restores a DaemonSet via the sentinel nodeSelector (VC-137)", func() {
+	It("sleeps and restores a DaemonSet via the sentinel nodeSelector", func() {
 		paris, err := time.LoadLocation("Europe/Paris")
 		Expect(err).NotTo(HaveOccurred())
 		sched := &nyxv1alpha1.SleepSchedule{
@@ -469,7 +469,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(nodeSel()).To(Equal(map[string]string{"disktype": "ssd"}))
 	})
 
-	It("sleeps and restores a CronJob via spec.suspend (VC-138)", func() {
+	It("sleeps and restores a CronJob via spec.suspend", func() {
 		paris, err := time.LoadLocation("Europe/Paris")
 		Expect(err).NotTo(HaveOccurred())
 		sched := &nyxv1alpha1.SleepSchedule{
@@ -520,7 +520,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(*suspend()).To(BeFalse())
 	})
 
-	It("neutralizes and restores an HPA min/max (VC-139)", func() {
+	It("neutralizes and restores an HPA min/max", func() {
 		paris, err := time.LoadLocation("Europe/Paris")
 		Expect(err).NotTo(HaveOccurred())
 		sched := &nyxv1alpha1.SleepSchedule{
@@ -565,7 +565,7 @@ var _ = Describe("SleepSchedule controller", func() {
 		Expect(h.Spec.MaxReplicas).To(Equal(int32(10)))
 	})
 
-	It("refuses to sleep a whenScaled=Delete StatefulSet unless opted in (VC-140)", func() {
+	It("refuses to sleep a whenScaled=Delete StatefulSet unless opted in", func() {
 		sched := &nyxv1alpha1.SleepSchedule{
 			ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: namespace},
 			Spec:       validSpec(), // default kinds include StatefulSet

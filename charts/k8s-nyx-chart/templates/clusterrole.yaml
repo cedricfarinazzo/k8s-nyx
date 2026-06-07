@@ -4,7 +4,7 @@ metadata:
   name: {{ include "k8s-nyx.fullname" . }}-manager
   labels:
     {{- include "k8s-nyx.labels" . | nindent 4 }}
-# Least-privilege RBAC (VC-159): mirrors the controller-gen output in
+# Least-privilege RBAC: mirrors the controller-gen output in
 # config/rbac/role.yaml. Each verb is one the controller exercises; list+watch are
 # kept for the informer cache. Rationale per rule: docs/operator-guide.md.
 rules:
