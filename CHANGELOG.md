@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.1...v2.0.2) (2026-06-07)
+
+
+### Bug Fixes
+
+* **deps:** upgrade to k8s 0.36 / controller-runtime 0.24 (go 1.26) ([#64](https://github.com/cedricfarinazzo/k8s-nyx/issues/64)) ([7fb7751](https://github.com/cedricfarinazzo/k8s-nyx/commit/7fb7751d7111465f44c0ece2f6777aba1e74e15e))
+
 ## [2.0.1](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.0...v2.0.1) (2026-06-07)
 
 
