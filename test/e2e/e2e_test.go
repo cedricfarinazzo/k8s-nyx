@@ -149,8 +149,10 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 	})
 
 	// Test 5 — temporary wake override: asleep, then a +duration override forces it
-	// awake, then it sleeps again when the override expires (AC1: up then down).
-	It("honours a temporary wake override and sleeps again on expiry", func() {
+	// awake, then it sleeps again when the override expires, and finally wakes on
+	// its own when the scheduled awake window opens (AC1: up, down, then back up on
+	// schedule).
+	It("honours a temporary wake override, sleeps again on expiry, then wakes on schedule", func() {
 		ns := newNamespace(ctx)
 		dep := "web"
 		newDeployment(ctx, ns, dep)
@@ -173,5 +175,10 @@ var _ = Describe("sleep / wake / restore across kinds", func() {
 
 		By("asleep again once the override expires")
 		Eventually(deployReplicas(ctx, ns, dep), 4*time.Minute, pollInterval).Should(Equal(sleepReplicas))
+
+		By("awake again when the scheduled window opens (resumes on its own)")
+		// The schedule's awake window opens t5Window after creation; once the
+		// override is gone the deployment must wake on schedule, not stay asleep.
+		Eventually(deployReplicas(ctx, ns, dep), t5Window+wakeSlack, pollInterval).Should(Equal(awakeReplicas))
 	})
 })
