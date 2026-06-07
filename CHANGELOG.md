@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.6.0...v1.7.0) (2026-06-07)
+
+
+### Features
+
+* **ha:** harden leader election for high availability ([#40](https://github.com/cedricfarinazzo/k8s-nyx/issues/40)) ([7e0ffc6](https://github.com/cedricfarinazzo/k8s-nyx/commit/7e0ffc69d5b4d2efb776fff21af72b47e5c9374c))
+
 # [1.6.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.5.0...v1.6.0) (2026-06-07)
 
 
