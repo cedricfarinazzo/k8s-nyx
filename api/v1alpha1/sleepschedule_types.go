@@ -178,6 +178,4 @@ type SleepScheduleList struct {
 	Items           []SleepSchedule `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&SleepSchedule{}, &SleepScheduleList{})
-}
+// Types are registered with the scheme in addKnownTypes (groupversion_info.go).

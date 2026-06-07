@@ -3,7 +3,7 @@
 # the manager is a static (CGO_ENABLED=0) Go binary, so `go build` cross-compiles
 # on the build host instead of running the whole stage under QEMU emulation —
 # the arm64 image builds at native amd64 speed.
-FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
