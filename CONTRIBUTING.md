@@ -59,8 +59,9 @@ Keep the commit body's "why" when it isn't obvious from the diff.
 4. Open a pull request against `master`.
    - **The PR title must be a valid Conventional Commit** — PRs are
      squash-merged, so the PR title becomes the release-driving commit subject.
-5. CI must pass (build, test, lint, Docker build, Helm lint/template + kind
-   install, commitlint). A maintainer reviews; address comments until approved.
+5. CI must pass (build, test, lint, Docker build, Helm lint/template, the
+   `E2E (kind)` job, and commitlint). A maintainer reviews; address comments until
+   approved.
 6. On merge to `master`, CI runs and — only if it passes — the release workflow
    may cut a new version automatically (depending on the commit types since the
    last release).

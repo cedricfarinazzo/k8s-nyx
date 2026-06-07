@@ -8,14 +8,17 @@ alike. User-facing documentation lives in [`docs/`](docs/) and the
 
 k8s-nyx is a Kubernetes operator (Go, controller-runtime) that puts workloads to
 sleep on a schedule and wakes them on demand, restoring their exact prior state.
-It scales `Deployments` and `StatefulSets` to a configured replica count during
-"asleep" windows and restores the original count on wake. The original state is
-held out-of-band (a per-schedule Secret) so restore is exact and survives
-operator restarts.
+During "asleep" windows it sleeps each targeted workload by the minimal
+reversible change for its kind — scaling `Deployments`/`StatefulSets` to a
+configured replica count, injecting a sentinel `nodeSelector` on `DaemonSets`,
+setting `spec.suspend` on `CronJobs`/`Jobs`, or neutralizing an
+`HorizontalPodAutoscaler`'s bounds — and restores the original on wake. The
+original state is held out-of-band (a per-schedule Secret) so restore is exact and
+survives operator restarts.
 
-The operator is the only component that mutates workloads, and it touches **only**
-`/spec/replicas`, via a merge patch — so it coexists cleanly with GitOps tools
-(e.g. ArgoCD).
+The operator is the only component that mutates workloads, and for each kind it
+touches **only** the single field it sleeps by, via a merge patch — so it coexists
+cleanly with GitOps tools (e.g. ArgoCD).
 
 **How it works, in one pass of the reconciler** (`internal/controller`):
 evaluate the schedule in its timezone → resolve the targeted workloads → apply
@@ -34,8 +37,9 @@ package:
   sleep/wake by calling the matching handler.
 - **Sleep/restore** (`internal/workload` handlers + `internal/checkpoint`): the
   first sleep records the original state once (never overwritten while asleep);
-  wake restores it exactly and clears the entry. Deployment/StatefulSet handlers
-  scale `/spec/replicas`. The checkpoint is a Secret, so it survives restarts.
+  wake restores it exactly and clears the entry. Each handler touches only its
+  one sleep field (replicas / `nodeSelector` / `spec.suspend` / HPA min-max). The
+  checkpoint is a Secret, so it survives restarts.
 - **Wake override** (`internal/wake` + reconciler): the operator owns a
   `<schedule>-wake` ConfigMap. Triggers write entries; the operator stamps
   relative `+duration`s to absolute (once), applies a default, clamps to a max,
@@ -55,8 +59,10 @@ package:
 - `internal/workload/` — the per-kind **handler registry**: each kind's handler
   owns `List` + `Sleep` + `Restore`; the resolver lists requested kinds
   (`namespaces`/`labels`, with `excludeRefs`) and reports kinds with no handler;
-  the dispatcher applies sleep/wake. Deployment + StatefulSet handlers ship by
-  default (replica-based); new kinds plug in by registering a handler.
+  the dispatcher applies sleep/wake. Six handlers ship by default: Deployment +
+  StatefulSet (replicas), DaemonSet (sentinel `nodeSelector`), CronJob + Job
+  (`spec.suspend`), and HorizontalPodAutoscaler (min/max neutralize); new kinds
+  plug in by registering a handler.
 - `internal/checkpoint/` — the exact-restore Secret store (keyed kind+ns+name+UID).
 - `internal/wake/` — parses/resolves wake ConfigMap entries (RFC3339 or
   `+duration`, with `by`/`reason`).
@@ -123,7 +129,9 @@ CRD (`charts/k8s-nyx-chart/templates/crds.yaml`) in sync.
 
 ## Conventions
 
-- **Only `/spec/replicas` is mutated** on workloads — never any other field (the
+- **Only the one field that kind sleeps by is mutated** on workloads — replicas
+  (Deployment/StatefulSet), a sentinel `nodeSelector` (DaemonSet), `spec.suspend`
+  (CronJob/Job), or HPA `min`/`max` — never any other field (the
   GitOps-coexistence contract). Use a merge patch carrying just that field.
 - **No silent assumptions in the API.** Anything OpenAPI can express (patterns,
   enums, required, min) lives on the CRD types as `+kubebuilder` markers; anything

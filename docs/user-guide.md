@@ -24,7 +24,7 @@ spec:
   target:
     mode: namespaces                # "namespaces" | "labels"
     namespaces: [team-a, team-a-jobs]
-  kinds: [Deployment, StatefulSet]  # optional; default is both
+  kinds: [Deployment, StatefulSet]  # optional; empty = all handled kinds
   excludeRefs:                      # optional; never touch these
     - kind: Deployment
       name: critical-billing
@@ -47,7 +47,7 @@ spec:
 | `target.mode` | enum | `namespaces` or `labels`. |
 | `target.namespaces` | list | Required when `mode: namespaces`. |
 | `target.selector` | LabelSelector | Required when `mode: labels`; matches workloads cluster-wide. |
-| `kinds` | list | Restrict to handled kinds (`Deployment`, `StatefulSet`). Empty = all handled kinds. A listed kind with no handler is ignored with a Warning Event (see below). |
+| `kinds` | list | Restrict to a subset of the handled kinds (`Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `HorizontalPodAutoscaler`). Empty = all handled kinds. A listed kind with no handler is ignored with a Warning Event (see below). |
 | `excludeRefs[]` | list | `{kind, name, namespace?}` workloads to leave untouched. A `namespace`-less ref matches that kind+name in **any** namespace. |
 | `sleepReplicas` | int (≥0) | Replica count applied while asleep. Default `0`. |
 | `temporaryWake.defaultDuration` | duration | Applied to a wake entry with no explicit expiry. |
@@ -117,10 +117,11 @@ restored verbatim on wake.
 > floor of 0 is clamped to 1 and a `HPAScaleToZeroUnavailable` Warning is emitted.
 
 `spec.kinds` restricts which handled kinds a schedule touches (empty = all
-handled kinds). A kind listed in `spec.kinds` with **no handler** (e.g. `CronJob`
-today) is ignored: the operator mutates nothing of that kind and emits an
-`UnhandledKind` Warning Event on the SleepSchedule, then continues with the kinds
-it does handle. Support for more kinds is added by registering new handlers.
+handled kinds). A kind listed in `spec.kinds` with **no handler** (e.g.
+`ReplicaSet`, which has none today) is ignored: the operator mutates nothing of
+that kind and emits an `UnhandledKind` Warning Event on the SleepSchedule, then
+continues with the kinds it does handle. Support for more kinds is added by
+registering new handlers.
 
 **Exclusions** are always dropped, regardless of mode:
 
@@ -135,14 +136,16 @@ excludeRefs:
 
 ## Sleep & exact restore
 
-The first time a workload goes to sleep, its current replica count is recorded
-once in a per-schedule checkpoint Secret and **never overwritten while asleep**.
-On wake, that exact count is restored and the checkpoint entry cleared. Because
-the checkpoint lives in a Secret (in the operator namespace), restore is exact
-and survives operator restarts.
+The first time a workload goes to sleep, its current pre-sleep state — the field
+that kind sleeps by (replica count, original `nodeSelector`, `spec.suspend`, or
+HPA `min`/`max`; see the [table above](#workload-kinds)) — is recorded once in a
+per-schedule checkpoint Secret and **never overwritten while asleep**. On wake,
+that exact state is restored and the checkpoint entry cleared. Because the
+checkpoint lives in a Secret (in the operator namespace), restore is exact and
+survives operator restarts.
 
-The operator patches **only** `/spec/replicas` with a merge patch — it never
-touches anything else, so ArgoCD and friends keep managing the rest of the
+For each kind the operator patches **only that one field** with a merge patch — it
+never touches anything else, so ArgoCD and friends keep managing the rest of the
 manifest without conflict.
 
 ## Wake overrides
