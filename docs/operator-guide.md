@@ -154,6 +154,27 @@ increase(nyx_restore_failures_total[1h])
 nyx_targets_asleep{schedule="dev-hours", namespace="team-a"} > 0
 ```
 
+## High availability (leader election)
+
+For HA, run **2+ replicas** (`--set replicaCount=2`). Leader election (on by
+default, `leaderElection.enabled`) ensures **exactly one** replica reconciles at
+a time; the others are hot standbys.
+
+- The leader holds a `coordination.k8s.io` **Lease** in the release namespace and
+  renews it; standbys watch it. If the leader stops renewing (crash, eviction),
+  a standby acquires leadership after the lease expires (`--leader-elect-lease-duration`,
+  default 15s). On a **graceful** shutdown the leader releases the Lease
+  immediately, so failover happens within `--leader-elect-retry-period` (≈2s).
+- Tunables (operator flags): `--leader-elect-lease-duration`,
+  `--leader-elect-renew-deadline`, `--leader-elect-retry-period`.
+- Spread replicas across nodes/zones with the chart's `affinity` value (pod
+  anti-affinity) so a single node failure can't take out every replica.
+
+```sh
+# inspect the current leader
+kubectl -n k8s-nyx-system get lease k8s-nyx.nyx.dev -o yaml | grep holderIdentity
+```
+
 ## Upgrades
 
 ```sh

@@ -14,7 +14,9 @@ image:
 imagePullSecrets: []
 
 # -- Number of operator replicas. Leader election (below) ensures a single
-# active reconciler even when this is >1.
+# active reconciler even when this is >1. Set to 2+ for HA (a hot standby that
+# takes over within the lease window if the leader dies); use `affinity` to
+# spread the replicas across nodes.
 replicaCount: 1
 
 # -- Leader election keeps exactly one replica reconciling. Keep enabled for HA.
