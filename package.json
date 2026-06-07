@@ -4,6 +4,8 @@
   "private": true,
   "description": "Release tooling (semantic-release) for k8s-nyx. Not a published package.",
   "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
