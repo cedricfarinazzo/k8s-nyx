@@ -113,7 +113,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 GINKGO ?= $(LOCALBIN)/ginkgo
 # Pin ginkgo to the version of the module dependency so the CLI and the linked
 # library stay in lock-step.
-GINKGO_VERSION ?= v2.20.2
+GINKGO_VERSION ?= v2.29.0
 # E2E_TIMEOUT bounds the whole suite; the longest scenario waits out a ~5–7 min
 # live window (override the E2E_* knobs in the suite to shorten locally).
 E2E_TIMEOUT ?= 30m
