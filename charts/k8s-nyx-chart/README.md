@@ -25,9 +25,11 @@ helm show values oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart
 - `CustomResourceDefinition` — `sleepschedules.nyx.dev` (carries
   `helm.sh/resource-policy: keep`, so it survives `helm uninstall`).
 - `Deployment` — the operator/controller-manager.
-- `ServiceAccount` + `ClusterRole`/`ClusterRoleBinding` — cluster-wide read of
-  Deployments/StatefulSets and patch of `/spec/replicas`; manage the per-schedule
-  checkpoint Secret and wake ConfigMap.
+- `ServiceAccount` + `ClusterRole`/`ClusterRoleBinding` — least-privilege,
+  cluster-wide: watch + patch the targeted workload kinds (Deployments,
+  StatefulSets, DaemonSets, CronJobs, Jobs, HPAs); manage the per-schedule
+  checkpoint Secret and wake ConfigMap; emit Events. See the
+  [Operator Guide → RBAC footprint](../../docs/operator-guide.md#rbac-footprint).
 - `Role`/`RoleBinding` — leader election (when enabled).
 - Optional: `Service` + `ValidatingWebhookConfiguration` (+ cert-manager
   `Issuer`/`Certificate`) when `webhook.enabled=true`.
