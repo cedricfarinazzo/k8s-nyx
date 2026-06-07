@@ -221,10 +221,17 @@ func newCronJob(ctx context.Context, ns, name string) *batchv1.CronJob {
 	return cj
 }
 
+// newJob creates an idle Job (parallelism 0 → no active pods). The operator
+// deliberately skips Jobs with active pods (suspending would delete them), so a
+// suspend toggle is only observable on a Job that has none — parallelism 0
+// guarantees Status.Active stays 0 regardless of timing.
 func newJob(ctx context.Context, ns, name string) *batchv1.Job {
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: batchv1.JobSpec{
+			Suspend:      ptr(false),
+			Parallelism:  ptr(int32(0)),
+			Completions:  ptr(int32(1)),
 			BackoffLimit: ptr(int32(0)),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(name)},
