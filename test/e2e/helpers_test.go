@@ -92,25 +92,23 @@ func noonAnchoredTZ(now time.Time) (string, *time.Location) {
 var allDays = []nyxv1alpha1.Day{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 
 // liveAwakeWindow builds a schedule that is ASLEEP now and turns AWAKE wakeIn
-// from now (staying awake for awakeFor). Returns the timezone and the window.
-func liveAwakeWindow(wakeIn, awakeFor time.Duration) (string, nyxv1alpha1.AwakeWindow) {
+// from now (staying awake for awakeFor). It returns the timezone, the window, and
+// opensAt — the absolute instant the window opens, so a test can assert the
+// workload wakes AT the scheduled time (not merely some time later). Because the
+// window edges are formatted to "HH:MM", opensAt is floored to the minute (the
+// timezone is a whole-hour Etc/GMT offset, so minutes align with wall clock).
+func liveAwakeWindow(wakeIn, awakeFor time.Duration) (string, nyxv1alpha1.AwakeWindow, time.Time) {
 	now := time.Now()
 	tz, loc := noonAnchoredTZ(now)
 	local := now.In(loc)
 	from := local.Add(wakeIn)
 	to := from.Add(awakeFor)
+	opensAt := time.Date(from.Year(), from.Month(), from.Day(), from.Hour(), from.Minute(), 0, 0, loc)
 	return tz, nyxv1alpha1.AwakeWindow{
 		Days: allDays,
 		From: from.Format("15:04"),
 		To:   to.Format("15:04"),
-	}
-}
-
-// alwaysAsleepWindow builds a window that does not contain now, so targets sleep
-// now and only wake after wakeIn — used by the override test where the wake is
-// driven by a temporary override, not the window.
-func alwaysAsleepWindow(wakeIn, awakeFor time.Duration) (string, nyxv1alpha1.AwakeWindow) {
-	return liveAwakeWindow(wakeIn, awakeFor)
+	}, opensAt
 }
 
 // ---------------------------------------------------------------------------
