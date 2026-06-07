@@ -1,3 +1,15 @@
+# [2.0.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.8.0...v2.0.0) (2026-06-07)
+
+
+* feat(wake)!: simplify the wake override to a single expiry value ([#47](https://github.com/cedricfarinazzo/k8s-nyx/issues/47)) ([527b77b](https://github.com/cedricfarinazzo/k8s-nyx/commit/527b77b15e4b9fe80d9db414548540cd93bf5b68))
+
+
+### BREAKING CHANGES
+
+* wake overrides are now a single 'wake' key holding only the expiry; the previous multi-key '<expiry>;by=;reason=' format and per-entry attribution are removed.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+
 # [1.8.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v1.7.0...v1.8.0) (2026-06-07)
 
 
