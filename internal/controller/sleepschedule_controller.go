@@ -253,7 +253,17 @@ func (r *SleepScheduleReconciler) ensureWakeConfigMap(ctx context.Context, ss *n
 	if err := controllerutil.SetControllerReference(ss, &cm, r.Scheme); err != nil {
 		return err
 	}
-	return r.Create(ctx, &cm)
+	if err := r.Create(ctx, &cm); err != nil {
+		// The schedule's namespace is being deleted, taking the schedule (and any
+		// ConfigMap we would create) with it. Creates are forbidden in a
+		// terminating namespace; that is expected teardown, not a reconcile error
+		// — return cleanly instead of churning ERROR logs until GC removes the SS.
+		if apierrors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // wakeState summarises the active wake overrides after a reconcile pass.
