@@ -1,3 +1,10 @@
+## [2.1.1](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.1.0...v2.1.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* **controller:** stop logging transient reconcile errors as failures ([#67](https://github.com/cedricfarinazzo/k8s-nyx/issues/67)) ([4c696c5](https://github.com/cedricfarinazzo/k8s-nyx/commit/4c696c55cec4ed8604fb73a7ff183fb92d310bc4))
+
 # [2.1.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.2...v2.1.0) (2026-06-08)
 
 
