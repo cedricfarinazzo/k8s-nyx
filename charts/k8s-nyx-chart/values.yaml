@@ -38,6 +38,16 @@ serviceAccount:
 crds:
   install: true
 
+# -- Controller-runtime metrics endpoint (Prometheus). The operator serves
+# /metrics on container port 8080 (plain HTTP, unauthenticated); this Service
+# makes it scrapeable cluster-wide. `helm test` verifies it serves.
+metrics:
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+
 # -- Validating admission webhook. Disabled by default: it requires TLS certs
 # (e.g. via cert-manager). With it disabled the operator runs with
 # ENABLE_WEBHOOKS=false and the CRD's OpenAPI validation still applies.

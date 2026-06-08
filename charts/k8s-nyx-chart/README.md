@@ -31,6 +31,9 @@ helm show values oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart
   checkpoint Secret and wake ConfigMap; emit Events. See the
   [Operator Guide → RBAC footprint](../../docs/operator-guide.md#rbac-footprint).
 - `Role`/`RoleBinding` — leader election (when enabled).
+- `Service` (`<release>-k8s-nyx-chart-metrics`) — exposes the controller-runtime
+  Prometheus `/metrics` endpoint (:8080) for scraping. On by default; disable
+  with `metrics.service.enabled=false`.
 - Optional: `Service` + `ValidatingWebhookConfiguration` (+ cert-manager
   `Issuer`/`Certificate`) when `webhook.enabled=true`.
 
@@ -48,6 +51,10 @@ helm show values oci://ghcr.io/cedricfarinazzo/k8s-nyx-chart
 | `serviceAccount.name` | `""` | Name to use; empty → generated. |
 | `serviceAccount.annotations` | `{}` | Extra SA annotations. |
 | `crds.install` | `true` | Install/update the `SleepSchedule` CRD. |
+| `metrics.service.enabled` | `true` | Create the metrics `Service` (Prometheus `/metrics`). |
+| `metrics.service.type` | `ClusterIP` | Metrics Service type. |
+| `metrics.service.port` | `8080` | Metrics Service port (targets container `:8080`). |
+| `metrics.service.annotations` | `{}` | Extra annotations (e.g. scrape hints). |
 | `webhook.enabled` | `false` | Enable the validating webhook (needs TLS certs). |
 | `webhook.failurePolicy` | `Fail` | Webhook failure policy. |
 | `webhook.certManager.enabled` | `true` | When the webhook is on, wire a cert-manager `Issuer`/`Certificate`. |
@@ -82,7 +89,7 @@ yourself.
 
 ```sh
 kubectl -n k8s-nyx-system rollout status deploy/<release>-k8s-nyx-chart
-helm test <release> -n k8s-nyx-system   # lists SleepSchedules via the operator SA
+helm test <release> -n k8s-nyx-system   # lists SleepSchedules via the operator SA + scrapes /metrics
 ```
 
 ## Uninstall

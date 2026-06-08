@@ -1,0 +1,49 @@
+{{- if .Values.metrics.service.enabled }}
+# Helm test: prove the metrics endpoint is live and serving the controller's
+# Prometheus registry through the metrics Service — a 2xx alone isn't enough,
+# so we also assert a controller-runtime metric is present in the body.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "k8s-nyx.fullname" . }}-test-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    # curlimages/curl ships the non-root `curl_user` (uid 100); pin it explicitly
+    # so kubelet can admit the pod under runAsNonRoot.
+    runAsUser: 100
+    runAsGroup: 100
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: metrics-check
+    image: curlimages/curl:8.11.1
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 100
+      capabilities:
+        drop:
+          - ALL
+    command:
+    - /bin/sh
+    - -ec
+    - |
+      url="http://{{ include "k8s-nyx.fullname" . }}-metrics:{{ .Values.metrics.service.port }}/metrics"
+      # -f: non-2xx is a failure; --retry: tolerate the Service/endpoint settling.
+      body="$(curl -fsS --retry 12 --retry-delay 5 --retry-connrefused "$url")"
+      # max_concurrent_reconciles is a gauge controller-runtime sets when the
+      # controller starts, so the series exists even before any reconcile (i.e.
+      # with zero SleepSchedules) — unlike reconcile_total, which only appears
+      # after the first reconcile.
+      echo "$body" | grep -q 'controller_runtime_max_concurrent_reconciles' \
+        || { echo "metrics endpoint reachable but controller-runtime metrics missing"; exit 1; }
+      echo "metrics endpoint OK: controller-runtime metrics present"
+{{- end }}
