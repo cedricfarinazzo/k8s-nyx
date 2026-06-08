@@ -147,8 +147,11 @@ default; `--metrics-bind-address=0` disables it). Every series is labelled
 | `nyx_override_seconds_remaining` | gauge | Seconds until the earliest active override expires (0 when none). |
 | `nyx_restore_failures_total` | counter | Failed restore (wake) attempts. |
 
-Scrape with a `PodMonitor`/`ServiceMonitor` on port `metrics`, or annotate the
-pod for the Prometheus annotation-based discovery.
+The chart ships a `ClusterIP` Service (`<release>-k8s-nyx-chart-metrics`, on by
+default — disable with `metrics.service.enabled=false`) targeting the `metrics`
+port, so a `ServiceMonitor` can scrape it directly; add scrape annotations via
+`metrics.service.annotations`. Alternatively use a `PodMonitor` on port
+`metrics`, or annotate the pod for annotation-based discovery.
 
 Example PromQL:
 
