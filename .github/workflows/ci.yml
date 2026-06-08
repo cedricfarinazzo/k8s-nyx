@@ -112,8 +112,8 @@ jobs:
         run: |
           helm template nyx charts/k8s-nyx-chart -n nyx-system > /tmp/default.yaml
           helm template nyx charts/k8s-nyx-chart -n nyx-system --set webhook.enabled=true > /tmp/webhook.yaml
-          # AC1: chart bundles CRD, RBAC, and the operator Deployment.
-          for kind in CustomResourceDefinition ClusterRole ClusterRoleBinding Deployment ServiceAccount; do
+          # AC1: chart bundles CRD, RBAC, the operator Deployment, and the metrics Service.
+          for kind in CustomResourceDefinition ClusterRole ClusterRoleBinding Deployment ServiceAccount Service; do
             grep -q "^kind: $kind$" /tmp/default.yaml || { echo "missing $kind in default render"; exit 1; }
           done
           grep -q "ValidatingWebhookConfiguration" /tmp/webhook.yaml || { echo "webhook not rendered when enabled"; exit 1; }
@@ -178,3 +178,9 @@ jobs:
       # multi-namespace, kind targeting, PVC-deletion guard, temporary-wake override.
       - name: e2e suite
         run: make test-e2e
+      # Dump the operator's logs whatever the suite's outcome — on failure this
+      # is the primary forensic trail (what the reconciler actually did); on
+      # success it's a record of the sleep/wake/restore actions taken.
+      - name: Operator logs
+        if: always()
+        run: kubectl -n nyx-system logs deploy/nyx-k8s-nyx-chart --tail=-1 --prefix=true

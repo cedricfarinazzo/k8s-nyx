@@ -1,0 +1,28 @@
+{{- if .Values.metrics.service.enabled }}
+# ClusterIP Service exposing the controller-runtime metrics endpoint (:8080)
+# so Prometheus (or a ServiceMonitor) can scrape it. The operator only declares
+# the container port; without this Service the metrics are reachable solely by
+# pod IP. Plain HTTP — the operator serves /metrics unauthenticated on :8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "k8s-nyx.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-nyx.labels" . | nindent 4 }}
+    control-plane: controller-manager
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  selector:
+    {{- include "k8s-nyx.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+  ports:
+  - name: metrics
+    port: {{ .Values.metrics.service.port }}
+    targetPort: metrics
+    protocol: TCP
+{{- end }}
