@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.2...v2.1.0) (2026-06-08)
+
+
+### Features
+
+* **chart:** expose metrics Service and verify it in helm test ([#66](https://github.com/cedricfarinazzo/k8s-nyx/issues/66)) ([8041a37](https://github.com/cedricfarinazzo/k8s-nyx/commit/8041a37ef15ebb37d00451f01f63771ed94d2139))
+
 ## [2.0.2](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.0.1...v2.0.2) (2026-06-07)
 
 
