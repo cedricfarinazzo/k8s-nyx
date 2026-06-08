@@ -18,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
@@ -62,31 +63,44 @@ func (s *Store) GetRaw(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule,
 // SetRaw records value for key, creating the Secret if needed. It does not
 // overwrite an existing key — the first write captures the true original.
 func (s *Store) SetRaw(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key, value string) error {
-	sec := &corev1.Secret{}
 	name := secretName(schedule)
-	err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, sec)
-	switch {
-	case apierrors.IsNotFound(err):
-		sec = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: s.Namespace,
-				Labels:    map[string]string{"app.kubernetes.io/managed-by": "k8s-nyx", "nyx.dev/schedule": schedule.Name},
-			},
-			Data: map[string][]byte{key: []byte(value)},
+	// Get→mutate→Update (and the create race below) can lose to a concurrent
+	// writer: an Update fails with Conflict ("object has been modified"), or two
+	// reconciles racing to first-create collide with AlreadyExists. Both are
+	// transient — refetch and retry rather than bubbling up a reconcile error.
+	return retry.OnError(retry.DefaultRetry, isTransientWrite, func() error {
+		sec := &corev1.Secret{}
+		err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, sec)
+		switch {
+		case apierrors.IsNotFound(err):
+			sec = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: s.Namespace,
+					Labels:    map[string]string{"app.kubernetes.io/managed-by": "k8s-nyx", "nyx.dev/schedule": schedule.Name},
+				},
+				Data: map[string][]byte{key: []byte(value)},
+			}
+			return s.Client.Create(ctx, sec)
+		case err != nil:
+			return err
 		}
-		return s.Client.Create(ctx, sec)
-	case err != nil:
-		return err
-	}
-	if _, exists := sec.Data[key]; exists {
-		return nil // never clobber the recorded original
-	}
-	if sec.Data == nil {
-		sec.Data = map[string][]byte{}
-	}
-	sec.Data[key] = []byte(value)
-	return s.Client.Update(ctx, sec)
+		if _, exists := sec.Data[key]; exists {
+			return nil // never clobber the recorded original
+		}
+		if sec.Data == nil {
+			sec.Data = map[string][]byte{}
+		}
+		sec.Data[key] = []byte(value)
+		return s.Client.Update(ctx, sec)
+	})
+}
+
+// isTransientWrite reports whether a write failed for a reason that a refetch +
+// retry resolves: an optimistic-lock Conflict, or an AlreadyExists from a lost
+// create race.
+func isTransientWrite(err error) bool {
+	return apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err)
 }
 
 // Get returns the checkpointed replica count for key, and whether it was present.
@@ -110,21 +124,25 @@ func (s *Store) Set(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, ke
 // Delete removes the checkpoint entry for key (after a successful restore). When the
 // last entry is removed the Secret is deleted to avoid leaving empty Secrets behind.
 func (s *Store) Delete(ctx context.Context, schedule *nyxv1alpha1.SleepSchedule, key string) error {
-	sec := &corev1.Secret{}
 	name := secretName(schedule)
-	err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, sec)
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if _, ok := sec.Data[key]; !ok {
-		return nil
-	}
-	delete(sec.Data, key)
-	if len(sec.Data) == 0 {
-		return client.IgnoreNotFound(s.Client.Delete(ctx, sec))
-	}
-	return s.Client.Update(ctx, sec)
+	// Same conflict tolerance as SetRaw: a concurrent writer can move the Secret
+	// out from under this Get→Update/Delete. Refetch and retry on Conflict.
+	return retry.OnError(retry.DefaultRetry, isTransientWrite, func() error {
+		sec := &corev1.Secret{}
+		err := s.Client.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: name}, sec)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if _, ok := sec.Data[key]; !ok {
+			return nil
+		}
+		delete(sec.Data, key)
+		if len(sec.Data) == 0 {
+			return client.IgnoreNotFound(s.Client.Delete(ctx, sec))
+		}
+		return s.Client.Update(ctx, sec)
+	})
 }

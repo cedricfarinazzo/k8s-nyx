@@ -8,15 +8,19 @@ package checkpoint
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	nyxv1alpha1 "github.com/cedricfarinazzo/k8s-nyx/api/v1alpha1"
 )
@@ -82,6 +86,44 @@ func TestStore_SetDoesNotClobber(t *testing.T) {
 	}
 	got, found, err := s.Get(ctx, sched(), "k")
 	if err != nil || !found || got != 3 {
+		t.Fatalf("got (%d, %v, %v), want (3, true, nil)", got, found, err)
+	}
+}
+
+// A concurrent writer can move the checkpoint Secret out from under the
+// Get→Update in SetRaw, producing a Conflict ("object has been modified").
+// SetRaw must refetch and retry rather than surfacing it as a reconcile error.
+func TestStore_SetRawRetriesOnConflict(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = nyxv1alpha1.AddToScheme(scheme)
+	var updates int
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				updates++
+				if updates == 1 {
+					return apierrors.NewConflict(
+						schema.GroupResource{Resource: "secrets"}, obj.GetName(), errors.New("modified"))
+				}
+				return cl.Update(ctx, obj, opts...)
+			},
+		}).Build()
+	s := &Store{Client: c, Namespace: "nyx-system"}
+	ctx := context.Background()
+
+	// Seed an entry so the Secret exists; the next Set takes the Get→Update path.
+	if err := s.Set(ctx, sched(), "first", 1); err != nil {
+		t.Fatal(err)
+	}
+	// The first Update conflicts; SetRaw should refetch and retry to success.
+	if err := s.Set(ctx, sched(), "k", 3); err != nil {
+		t.Fatalf("SetRaw should retry past a Conflict, got: %v", err)
+	}
+	if updates < 2 {
+		t.Fatalf("expected the Update to be retried after Conflict, saw %d call(s)", updates)
+	}
+	if got, found, err := s.Get(ctx, sched(), "k"); err != nil || !found || got != 3 {
 		t.Fatalf("got (%d, %v, %v), want (3, true, nil)", got, found, err)
 	}
 }
