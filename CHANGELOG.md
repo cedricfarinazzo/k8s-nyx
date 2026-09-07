@@ -1,3 +1,10 @@
+## [2.1.7](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.1.6...v2.1.7) (2026-09-07)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#81](https://github.com/cedricfarinazzo/k8s-nyx/issues/81)) ([93d44c8](https://github.com/cedricfarinazzo/k8s-nyx/commit/93d44c8a8e4c1440f759da268c9b2c3af9b02965))
+
 ## [2.1.6](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.1.5...v2.1.6) (2026-09-01)
 
 
