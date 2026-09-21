@@ -1,3 +1,10 @@
+## [2.1.9](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.1.8...v2.1.9) (2026-09-21)
+
+
+### Bug Fixes
+
+* **deps:** update module sigs.k8s.io/controller-runtime to v0.25.1 ([#83](https://github.com/cedricfarinazzo/k8s-nyx/issues/83)) ([485656d](https://github.com/cedricfarinazzo/k8s-nyx/commit/485656dab0795be5733cdee81708feb0fcd18f0a))
+
 ## [2.1.8](https://github.com/cedricfarinazzo/k8s-nyx/compare/v2.1.7...v2.1.8) (2026-09-17)
 
 
